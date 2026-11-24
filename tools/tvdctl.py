@@ -41,7 +41,7 @@ def main():
     x=sub.add_parser("ui-wait"); x.add_argument("component"); x.add_argument("--seconds",type=int,default=15)
     x=sub.add_parser("reference-list"); x.add_argument("root",choices=ROOTS)
     x=sub.add_parser("mirror"); x.add_argument("paths",nargs="+"); x.add_argument("--verify",action="store_true")
-    x=sub.add_parser("test"); x.add_argument("name"); x.add_argument("--plan"); x.add_argument("--source-sha"); x.add_argument("--artifact-sha256")
+    x=sub.add_parser("test"); x.add_argument("name"); x.add_argument("--plan"); x.add_argument("--source-sha"); x.add_argument("--artifact-sha256"); x.add_argument("--artifact"); x.add_argument("--package")
     try:
         a=p.parse_args()
         store=Store(a.workspace)
@@ -67,7 +67,7 @@ def main():
             elif a.operation=="ui-wait": result=wait_foreground(r,a.component,a.seconds)
             elif a.operation=="reference-list": result=list_references(r,a.root)
             elif a.operation=="mirror": result=mirror(r,a.paths,a.verify)
-            elif a.operation=="test": result=run_test(r,a.name,load_plan(a.name,a.plan),a.source_sha,a.artifact_sha256)
+            elif a.operation=="test": result=run_test(r,a.name,load_plan(a.name,a.plan),a.source_sha,a.artifact_sha256,artifact=a.artifact,package=a.package)
             elif a.operation=="exec":
                 if not a.allow_command: raise ValueError("explicit --allow-command required; arbitrary shell is not a read-only operation")
                 result=r.execute(a.command,read_only=False,sensitive=True)

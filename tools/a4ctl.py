@@ -86,6 +86,7 @@ def main():
     p.add_argument("--context",choices=("adb-shell","adb-root","ssh-root"),required=True)
     p.add_argument("--serial"); p.add_argument("--host"); p.add_argument("--expect-serial")
     p.add_argument("--timeout",type=int,default=30)
+    p.add_argument("--non-sensitive-staging",action="store_true")
     p.add_argument("operation",choices=("doctor","exec","shell","pull","push","sync","install","screenshot","logcat"))
     p.add_argument("operands",nargs="*")
     a=p.parse_args()
@@ -104,6 +105,7 @@ def main():
         if op in ("pull","push","sync"):
             argv=transfer_argv(a,op,*a.operands)
             if op=="push":
+                if not a.non_sensitive_staging: raise ValueError("explicit --non-sensitive-staging required")
                 source=pathlib.Path(a.operands[0]).expanduser()
                 if not source.is_file() or source.stat().st_size>128*1024*1024:
                     raise ValueError("staging requires a regular file <=128 MiB")

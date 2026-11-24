@@ -42,15 +42,19 @@ def build_server(args):
         """Compare host snapshots; unavailable or different contexts are not equal."""
         with lock: return compare(store,before,after)
     @mcp.tool()
-    def device_capabilities() -> list:
+    def device_capabilities(name_prefix: str="", limit: int=20, offset: int=0) -> list:
         """Read evidence-linked capability observations and current firmware applicability."""
+        if len(name_prefix)>80 or not 1<=limit<=50 or not 0<=offset<=500:
+            raise ValueError("invalid capability query limits")
+        def page(items):
+            return [item for item in items if item["name"].startswith(name_prefix)][offset:offset+limit]
         with lock:
             for context in runner.choices("any"):
                 from tvdcore import Unavailable
                 try: identity=runner.verify(context)
                 except Unavailable: continue
-                return capabilities(store,identity["firmware"],identity["serial_sha256"])[:100]
-            return capabilities(store)[:100]
+                return page(capabilities(store,identity["firmware"],identity["serial_sha256"]))
+            return page(capabilities(store))
     @mcp.tool()
     def device_evidence(evidence_id: str, stream: str="stdout", offset: int=0, lines: int=60, contains: str | None=None) -> dict:
         """Read a digest-verified evidence page, not an arbitrary host file; sensitive output opt-in only."""
@@ -83,9 +87,9 @@ def build_server(args):
         if not args.allow_mirror: raise ValueError("mirror disabled by host configuration")
         with lock: return mirror(runner,paths,verify)
     @mcp.tool()
-    def device_ui_hierarchy() -> dict:
+    def device_ui_hierarchy(non_sensitive_screen: bool=False) -> dict:
         """Only use on non-sensitive screen; explicit host shared-storage opt-in required."""
-        if not args.allow_shared_ui: raise ValueError("shared capture disabled")
+        if not args.allow_shared_ui or not non_sensitive_screen: raise ValueError("shared capture requires host opt-in and per-call non-sensitive-screen confirmation")
         with lock: return hierarchy(runner,allow_shared=True,cleanup=args.cleanup_shared)
     @mcp.tool()
     def device_keypress(key: str) -> dict:

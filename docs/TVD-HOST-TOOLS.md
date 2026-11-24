@@ -45,3 +45,9 @@ Sources: Android ADB documentation https://developer.android.com/tools/adb; MCP 
 The transport cache is only a preflight optimisation: a same-command guard rechecks serial, firmware, SDK, device and UID immediately before each structured payload. SSH trust/authentication errors fail closed. For bounded evidence pages:
     python tools/tvdctl.py evidence EVIDENCE_ID --offset 0 --lines 60 --contains MediaCodec
 Sensitive streams require --share-sensitive before the subcommand. Raw files remain on the host; verify before sharing. MCP exposes the same evidence paging and append-only capability record functions. Legacy ADB push is staging-only, unprivileged, bounded and refuses an existing target; never use shared staging for trusted executable code. Legacy adb install uses streaming rather than creating a toolkit scratch directory.
+
+## Optional exact installed single-APK qualification
+    python tools/tvdctl.py --serial SERIAL --expect-serial DEVICE_SERIAL test baseline --artifact /host/path/app.apk --package com.example.app --source-sha COMMIT_SHA
+This hashes the actual host APK and compares the installed single APK using pm path and sha256sum before and after the test. Split APKs, inaccessible paths, hash mismatch or unverifiable identity block testing. Source SHA remains a supplied claim. Module ZIP identity is not inferred from this check. No test report alone authorises stable release. A host-only MCP test remains built-in and read-only; no arbitrary uploaded test definition or shell.
+
+Shared capture additionally requires per-call non_sensitive_screen confirmation in MCP. Shared staging through legacy a4ctl push requires --non-sensitive-staging and is bounded to regular files under the staging category. Root execution from shared storage is prohibited. The legacy a4ctl exec remains the explicitly controlled streaming terminal interface. Host tools do not guarantee remote cancellation after a local timeout.

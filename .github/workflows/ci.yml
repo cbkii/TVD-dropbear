@@ -31,8 +31,16 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/tvd-mcp"
           "$RUNNER_TEMP/tvd-mcp/bin/pip" install -r tools/requirements-mcp.txt
           "$RUNNER_TEMP/tvd-mcp/bin/python" tests/mcp_smoke.py
+  windows-host:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python -m unittest discover -s tests -p "test_*.py"
   native:
-    needs: [tests, mcp]
+    needs: [tests, mcp, windows-host]
     strategy:
       fail-fast: false
       matrix:

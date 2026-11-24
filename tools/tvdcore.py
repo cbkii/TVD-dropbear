@@ -289,6 +289,9 @@ class Runner:
             marker="TVD_EXIT_"+uuid.uuid4().hex
             wrapped="if ! ( "+self.guard(context)+" ); then printf '\\n"+marker+":GUARD\\n'; exit 93; fi\n(\n"+command+"\n)\ntvd_rc=$?\nprintf '\\n"+marker+":%s\\n' \"$tvd_rc\""
             r=self._call(context,wrapped,cap)
+            if context=="ssh-root" and r["local_exit"]==255 and any(s in r["stderr"].lower() for s in (b"host key verification failed",b"remote host identification has changed",b"permission denied",b"no matching host key")):
+                self._verified.pop(context,None)
+                raise IdentityError("SSH trust or authentication failure; no fallback")
             remote_exit=None
             if r["kind"]=="exited" and r["stdout"].endswith(marker.encode()+b":GUARD\n"):
                 self._verified.pop(context,None)
@@ -312,7 +315,9 @@ class Runner:
     def read_result(self,result):
         if result["status"]!="ok" or not result["complete"]:
             raise ValueError("incomplete remote result")
-        return self.store.read("evidence",result["id"]+".stdout")
+        data=self.store.read("evidence",result["id"]+".stdout")
+        if digest(data)!=result["stdout_sha256"]: raise ValueError("evidence digest mismatch")
+        return data
 
     def binary_capture(self):
         # ADB's exec-out avoids a PTY and shared storage. SSH stdout is also binary-safe.
@@ -349,8 +354,13 @@ def evidence_page(store, evidence_id, stream="stdout", offset=0, lines=60, conta
     records=redact(raw.decode("utf-8","replace")).splitlines()
     if contains is not None:
         records=[line for line in records if contains in line]
-    page=records[offset:offset+lines]
-    text="\n".join(x[:1000] for x in page)
+    page=[]; length=0; truncated_lines=0
+    for line in records[offset:offset+lines]:
+        item=line[:1000]
+        if length+len(item)+1>12000: break
+        if len(line)>1000: truncated_lines+=1
+        page.append(item); length+=len(item)+1
+    text="\n".join(page)
     return {"id":evidence_id,"stream":stream,"offset":offset,"total_lines":len(records),
             "next_offset":offset+len(page) if offset+len(page)<len(records) else None,
-            "text":text[:12000],"truncated":len(text)>12000,"complete":meta["complete"]}
+            "text":text,"truncated_lines":truncated_lines,"complete":meta["complete"]}

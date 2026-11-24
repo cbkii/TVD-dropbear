@@ -45,7 +45,8 @@ def transfer_argv(args,op,first,second):
     if op=="push":
         from tvdcore import validate_shared
         validate_shared(remote)
-        # Only the new host toolkit may create workspace directories; legacy push requires an existing target.
+        if not remote.startswith("/sdcard/TVD-Engineering/staging/"):
+            raise ValueError("legacy push is restricted to shared staging")
         if args.context!="adb-shell": raise ValueError("shared staging writes require unprivileged ADB-shell context")
     local=local_path(second if op in ("pull","sync") else first)
     if args.context=="adb-root":
@@ -103,17 +104,20 @@ def main():
         if op in ("pull","push","sync"):
             argv=transfer_argv(a,op,*a.operands)
             if op=="push":
+                source=pathlib.Path(a.operands[0]).expanduser()
+                if not source.is_file() or source.stat().st_size>128*1024*1024:
+                    raise ValueError("staging requires a regular file <=128 MiB")
                 from tvdui import safe_workspace
                 category=a.operands[1].split("/")[-2]
                 remote=shlex.quote(a.operands[1])
-                guard=safe_workspace(category)+" && test ! -e "+remote+" && test ! -L "+remote
+                guard=safe_workspace(category)+" && test ! -e "+remote+" && test ! -L "+remote+" && df -k /sdcard | awk 'END {exit !($4 >= "+str(source.stat().st_size//1024+16384)+")}'"
                 if execute(a,guard).returncode: raise ValueError("unsafe or unavailable shared target")
             return run(a,argv).returncode
         if op=="install":
             if a.context!="adb-shell": raise ValueError("APK install requires explicit adb-shell context")
             path=pathlib.Path(a.operands[0]).resolve()
             if not path.is_file() or path.suffix.lower()!=".apk": raise ValueError("local APK required")
-            return run(a,[*adb_prefix(a.serial),"install","-r",str(path)]).returncode
+            return run(a,[*adb_prefix(a.serial),"install","--streaming","-r",str(path)]).returncode
         if op=="screenshot": return screenshot(a,a.operands[0])
         if op=="logcat":
             n=int(a.operands[0])

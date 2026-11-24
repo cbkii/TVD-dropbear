@@ -4,7 +4,7 @@
 import argparse
 import json
 import sys
-from tvdcore import Runner, Store, DEFAULT_HOME
+from tvdcore import Runner, Store, DEFAULT_HOME, evidence_page, Unavailable
 from tvdprofiles import PROBES, PROFILES, inspect, profile
 from tvdstate import SNAPSHOTS, snapshot, compare, record_capability, capabilities
 from tvdui import hierarchy, keypress, wait_foreground, KEYS
@@ -33,6 +33,7 @@ def main():
     x=sub.add_parser("diff"); x.add_argument("before"); x.add_argument("after")
     x=sub.add_parser("capability-record"); x.add_argument("name"); x.add_argument("outcome",choices=("observed","supported","failed","unproven")); x.add_argument("evidence"); x.add_argument("note")
     sub.add_parser("capabilities")
+    x=sub.add_parser("evidence"); x.add_argument("id"); x.add_argument("--stream",choices=("stdout","stderr"),default="stdout"); x.add_argument("--offset",type=int,default=0); x.add_argument("--lines",type=int,default=60); x.add_argument("--contains")
     x=sub.add_parser("exec"); x.add_argument("command"); x.add_argument("--allow-command",action="store_true")
     sub.add_parser("screenshot")
     x=sub.add_parser("ui-hierarchy"); x.add_argument("--non-sensitive-screen",action="store_true"); x.add_argument("--cleanup",action="store_true")
@@ -46,7 +47,15 @@ def main():
         store=Store(a.workspace)
         if a.operation=="diff": result=compare(store,a.before,a.after)
         elif a.operation=="capability-record": result=record_capability(store,a.name,a.outcome,a.evidence,a.note)
-        elif a.operation=="capabilities": result=capabilities(store)
+        elif a.operation=="capabilities":
+            identity=None
+            if a.serial or a.host:
+                r=runner_for(a,store)
+                for context in r.choices("any"):
+                    try: identity=r.verify(context); break
+                    except Unavailable: continue
+            result=capabilities(store,identity["firmware"],identity["serial_sha256"]) if identity else capabilities(store)
+        elif a.operation=="evidence": result=evidence_page(store,a.id,a.stream,a.offset,a.lines,a.contains,a.share_sensitive)
         else:
             r=runner_for(a,store)
             if a.operation=="inspect": result=inspect(r,a.probe)

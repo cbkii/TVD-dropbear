@@ -5,9 +5,9 @@ import argparse
 import json
 from threading import RLock
 from tvdctl import options, runner_for
-from tvdcore import Store
+from tvdcore import Store, evidence_page
 from tvdprofiles import PROBES, PROFILES, inspect, profile
-from tvdstate import snapshot, compare, capabilities
+from tvdstate import snapshot, compare, capabilities, record_capability
 from tvdmirror import ROOTS, list_references, mirror
 from tvdtests import BUILTIN, run_test
 from tvdui import hierarchy, keypress, wait_foreground
@@ -51,6 +51,14 @@ def build_server(args):
                 except Unavailable: continue
                 return capabilities(store,identity["firmware"],identity["serial_sha256"])[:100]
             return capabilities(store)[:100]
+    @mcp.tool()
+    def device_evidence(evidence_id: str, stream: str="stdout", offset: int=0, lines: int=60, contains: str | None=None) -> dict:
+        """Read a digest-verified evidence page, not an arbitrary host file; sensitive output opt-in only."""
+        with lock: return evidence_page(store,evidence_id,stream,offset,lines,contains,args.share_sensitive)
+    @mcp.tool()
+    def device_capability_record(name: str, outcome: str, evidence_id: str, note: str) -> dict:
+        """Append an evidence-linked observation on the host. Does not modify Android."""
+        with lock: return record_capability(store,name,outcome,evidence_id,note)
     @mcp.tool()
     def device_screenshot() -> dict:
         """Capture a private host PNG via ADB/SSH; returns reference, not image contents."""

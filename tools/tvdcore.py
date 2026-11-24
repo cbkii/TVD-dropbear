@@ -7,6 +7,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -94,6 +95,8 @@ class Store:
         return p
     def write(self, category, name, data):
         p = self.folder(category) / safe_name(name)
+        if shutil.disk_usage(self.root).free < len(data)+32*1024*1024:
+            raise OSError("insufficient free space in host workspace")
         fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "wb") as f:
@@ -226,6 +229,8 @@ class Runner:
         r = self._call(context,IDENTITY,16384)
         if r["kind"] != "exited" or r["local_exit"] != 0:
             self._verified.pop(context,None)
+            if context=="ssh-root" and any(s in r["stderr"].lower() for s in (b"host key verification failed",b"remote host identification has changed",b"permission denied",b"no matching host key")):
+                raise IdentityError("SSH trust or authentication failure; no fallback")
             raise Unavailable(f"{context} preflight unavailable")
         lines = r["stdout"].decode("utf-8","replace").splitlines()
         if len(lines)!=5:
@@ -242,6 +247,13 @@ class Runner:
         self._verified[context]=(time.monotonic(),info)
         return info
 
+    def guard(self, context):
+        identity=self.verify(context)
+        values={"ro.serialno":self.expect_serial,"ro.build.fingerprint":identity["firmware"],
+                "ro.product.device":identity["device"],"ro.build.version.sdk":"28"}
+        checks=['test "$(getprop '+key+')" = '+shlex.quote(val) for key,val in values.items()]
+        checks.append('test "$(id -u)" = '+identity["uid"])
+        return " && ".join(checks)
     def _save(self, context, identity, r, label, sensitive, remote_exit):
         ident=uuid.uuid4().hex
         out=self.store.write("evidence",ident+".stdout",r["stdout"])
@@ -275,9 +287,12 @@ class Runner:
                     raise
                 continue
             marker="TVD_EXIT_"+uuid.uuid4().hex
-            wrapped="(\n"+command+"\n)\ntvd_rc=$?\nprintf '\\n"+marker+":%s\\n' \"$tvd_rc\""
+            wrapped="if ! ( "+self.guard(context)+" ); then printf '\\n"+marker+":GUARD\\n'; exit 93; fi\n(\n"+command+"\n)\ntvd_rc=$?\nprintf '\\n"+marker+":%s\\n' \"$tvd_rc\""
             r=self._call(context,wrapped,cap)
             remote_exit=None
+            if r["kind"]=="exited" and r["stdout"].endswith(marker.encode()+b":GUARD\n"):
+                self._verified.pop(context,None)
+                raise IdentityError("device identity changed before operation; no fallback")
             if r["kind"]=="exited":
                 match=re.search(rb"\n"+marker.encode()+rb":([0-9]{1,3})\r?\n\Z",r["stdout"])
                 if match and int(match[1])<=255:
@@ -308,8 +323,9 @@ class Runner:
                 identity=self.verify(context)
             except Unavailable:
                 continue
-            argv=([*a4ctl.adb_prefix(self.serial),"exec-out","screencap","-p"] if context=="adb-shell"
-                  else a4ctl.argv_for(context,self.serial,self.host,"screencap -p"))
+            command=self.guard(context)+" && screencap -p"
+            argv=([*a4ctl.adb_prefix(self.serial),"exec-out",command] if context=="adb-shell"
+                  else a4ctl.argv_for(context,self.serial,self.host,command))
             r=bounded(argv,self.timeout,MAX_OUTPUT)
             if r["kind"]!="exited" or r["local_exit"]!=0 or not r["stdout"].startswith(b"\x89PNG\r\n\x1a\n"):
                 raise ValueError("screenshot failed; no automatic retry")
@@ -317,3 +333,24 @@ class Runner:
             return {"file":self.store.write("captures",name,r["stdout"]),"sha256":digest(r["stdout"]),
                     "bytes":len(r["stdout"]),"context":context,"identity":identity,"utc":utc()}
         raise Unavailable("no verified screenshot context")
+
+def evidence_page(store, evidence_id, stream="stdout", offset=0, lines=60, contains=None, share_sensitive=False):
+    """Read only known, digest-checked evidence, not an arbitrary host path."""
+    if not re.fullmatch(r"[0-9a-f]{32}",evidence_id) or stream not in ("stdout","stderr"):
+        raise ValueError("invalid evidence selector")
+    if not 0<=offset<=1000000 or not 1<=lines<=100 or contains is not None and (not isinstance(contains,str) or len(contains)>160):
+        raise ValueError("invalid page limits")
+    meta=store.load("evidence",evidence_id+".json")
+    if meta["id"]!=evidence_id or (meta["sensitive"] and not share_sensitive):
+        raise ValueError("private evidence; operator opt-in required")
+    raw=store.read("evidence",evidence_id+"."+stream)
+    if digest(raw)!=meta[stream+"_sha256"]:
+        raise ValueError("evidence digest mismatch")
+    records=redact(raw.decode("utf-8","replace")).splitlines()
+    if contains is not None:
+        records=[line for line in records if contains in line]
+    page=records[offset:offset+lines]
+    text="\n".join(x[:1000] for x in page)
+    return {"id":evidence_id,"stream":stream,"offset":offset,"total_lines":len(records),
+            "next_offset":offset+len(page) if offset+len(page)<len(records) else None,
+            "text":text[:12000],"truncated":len(text)>12000,"complete":meta["complete"]}

@@ -53,20 +53,21 @@ def hierarchy(runner, *, allow_shared=False, cleanup=False):
     with mutation_lock(r):
         r.verify("adb-shell",fresh=True)
         command=(safe_workspace("captures")+" && test ! -e "+q+" && test ! -L "+q+
-                 " && uiautomator dump "+q+" && test -f "+q+" && test ! -L "+q+
+                 " && (ulimit -f 4096 && uiautomator dump "+q+")"+" && test -f "+q+" && test ! -L "+q+
                  " && test \"$(stat -c %s "+q+")\" -le "+str(CAP)+" && sha256sum "+q)
         result=r.execute(command,"shell",label="ui-hierarchy",sensitive=True)
         output=r.read_result(result).decode("utf-8","replace")
         expected=re.search(r"(?m)^([0-9a-f]{64})\s+",output)
         if not expected:
             raise ValueError("hierarchy digest unavailable; shared file retained")
-        raw=bounded([*a4ctl.adb_prefix(r.serial),"exec-out","cat",path],r.timeout,CAP)
+        raw=bounded([*a4ctl.adb_prefix(r.serial),"exec-out",r.guard("adb-shell")+" && cat "+q],r.timeout,CAP)
         data=raw["stdout"]
         if raw["kind"]!="exited" or raw["local_exit"]!=0 or digest(data)!=expected[1]:
             raise ValueError("hierarchy transfer incomplete; shared file retained")
         if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
             raise ValueError("unsafe XML")
-        tree=ET.fromstring(data)
+        try: tree=ET.fromstring(data)
+        except ET.ParseError as exc: raise ValueError("invalid hierarchy XML") from exc
         nodes=[]
         for node in tree.iter("node"):
             # No text/content-description returned by default. Full XML stays in private host storage.

@@ -35,7 +35,7 @@ def snapshot(runner, name, kind="configuration"):
         raise ValueError("no verified snapshot source")
     report={"schema":1,"kind":kind,"utc":utc(),"identity":identity,"probes":results}
     file=runner.store.json("snapshots",name+".json",report)
-    return {"file":file,"kind":kind,"status":{p:r["status"] for p,r in results.items()}}
+    return {"file":file,"kind":kind,"complete":all(r["status"]=="ok" for r in results.values()),"status":{p:r["status"] for p,r in results.items()}}
 
 def compare(store,before,after):
     a=store.load("snapshots",safe_name(before)+".json")

@@ -55,7 +55,7 @@ def metadata(runner,path):
 
 def remote_hash(runner,context,path):
     q=shlex.quote(path)
-    r=runner._call(context,"test -f "+q+" && test ! -L "+q+
+    r=runner._call(context,runner.guard(context)+" && test -f "+q+" && test ! -L "+q+
                    " && test \"$(readlink -f "+q+")\" = "+q+" && sha256sum "+q,16384)
     m=re.match(rb"([0-9a-f]{64})\s",r["stdout"])
     if r["kind"]!="exited" or r["local_exit"]!=0 or not m:
@@ -102,7 +102,7 @@ def mirror(runner,paths,verify=False):
             reused=False
         if not reused:
             q=shlex.quote(path)
-            command="test -f "+q+" && test ! -L "+q+" && test \"$(readlink -f "+q+")\" = "+q+" && cat "+q
+            command=runner.guard(context)+" && test -f "+q+" && test ! -L "+q+" && test \"$(readlink -f "+q+")\" = "+q+" && cat "+q
             if context=="ssh-root":
                 argv=a4ctl.argv_for(context,runner.serial,runner.host,command)
             else:

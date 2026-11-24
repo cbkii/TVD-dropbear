@@ -1,4 +1,5 @@
-import importlib.util, pathlib, unittest
+import importlib.util, pathlib, unittest, sys
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'tools'))
 from types import SimpleNamespace
 spec=importlib.util.spec_from_file_location("a4ctl",pathlib.Path(__file__).resolve().parents[1]/"tools/a4ctl.py")
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)

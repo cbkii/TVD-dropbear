@@ -17,7 +17,7 @@ async def test():
                 await session.initialize()
                 tools=await session.list_tools()
                 names={t.name for t in tools.tools}
-                assert {"device_catalog","device_inspect","device_profile","device_test","device_snapshot","device_compare"}<=names
+                assert {"device_catalog","device_inspect","device_profile","device_test","device_snapshot","device_compare","device_evidence","device_capability_record"}<=names
                 assert "device_exec" not in names
                 catalog=await session.call_tool("device_catalog",{})
                 assert not catalog.isError

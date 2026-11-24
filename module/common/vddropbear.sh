@@ -120,7 +120,7 @@ prepare() {
         { fail 'run init --accept-de-storage over authenticated ADB first'; return 1; }
     private_file "$HOSTKEY" && private_file "$KEYS" && [ -s "$KEYS" ] ||
         { fail 'host key or authorised keys missing'; return 1; }
-    [ ! -d /data/adb/modules/vddropbear ] && [ ! -d /data/adb/modules_updates/vddropbear ] ||
+    [ ! -d /data/adb/modules/vddropbear ] && [ ! -d /data/adb/modules_update/vddropbear ] ||
         { fail 'upstream installation present; migrate explicitly'; return 1; }
     private_dir "$SHIM" && private_dir "$BINLINK" || return 1
     # The Android /data ancestors fail upstream's permission walk. Preserve

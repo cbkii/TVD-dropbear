@@ -1,11 +1,20 @@
 #!/system/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 SKIPUNZIP=0
+[ "$BOOTMODE" = true ] || abort 'Install only through the running rooted Android system'
 [ "$API" -ge 28 ] || abort 'TVD Dropbear requires Android API 28+'
 case "$ARCH" in arm|arm64) ;; *) abort 'ARM Android required';; esac
-[ ! -d /data/adb/modules/vddropbear ] && [ ! -d /data/adb/modules_updates/vddropbear ] ||
+[ ! -d /data/adb/modules/vddropbear ] && [ ! -d /data/adb/modules_update/vddropbear ] ||
     abort 'Remove upstream VD Dropbear explicitly before installing TVD Dropbear'
 . "$MODPATH/.vd/sha256-gate.sh"
+ABI=$(getprop ro.product.cpu.abi)
+case "$ABI" in arm64-v8a|armeabi-v7a) ;; *) abort "Unsupported userspace ABI: $ABI";; esac
+for tool in tvddropbear dropbearkey sftp-server rsync; do
+    [ -f "$MODPATH/bin/$ABI/$tool" ] || abort "Wrong ABI package or missing $tool: use $ABI ZIP"
+done
+if pgrep -x tvddropbear >/dev/null 2>&1; then
+    abort "Stop TVD listener and close active sessions over ADB before upgrading"
+fi
 set_perm_recursive "$MODPATH/bin" 0 0 0755 0755
 set_perm "$MODPATH/tvddctl" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755

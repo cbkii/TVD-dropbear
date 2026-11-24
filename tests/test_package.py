@@ -10,3 +10,8 @@ class PackageTest(unittest.TestCase):
     def test_no_updater(self):
         self.assertFalse(any("vdlu" in n or "webroot" in n for n in m.STATIC))
         self.assertEqual(set(m.TOOLS),{"tvddropbear","dropbearkey","sftp-server","rsync"})
+
+    def test_magisk_manifest_excludes_meta_inf(self):
+        # Runtime extraction omits META-INF; verify packer retains this contract.
+        source=pathlib.Path(m.__file__).read_text()
+        self.assertIn('if not n.startswith("META-INF/")',source)

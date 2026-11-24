@@ -47,3 +47,6 @@ From a workstation with Python 3 and explicit authenticated ADB serial / SSH ali
     python tools/a4ctl.py --context adb-shell --serial SERIAL screenshot capture.png
     python tools/qualify.py --serial SERIAL --host a4-tv --output evidence.json
 The SSH alias must resolve through host SSH configuration, with root login, dedicated key and verified known_hosts. Optionally pin ro.serialno with --expect-serial. No automatic fallback; timeouts mean outcome may be unknown. SSH transfers require modern OpenSSH SCP/SFTP and host rsync (e.g. WSL on Windows). Root ADB context is not a root file transfer transport; use SSH for protected files. Read-only qualification evidence compares contexts, records PSS/process ticks and selected state, and does not perform mutation. Inspect sensitive evidence before publishing.
+
+## Installer details
+Magisk v30.7 install_module excludes META-INF from extraction; the internal integrity manifest covers only extracted runtime files. The external ZIP SHA256 covers the installer itself. Magisk's pending module path is modules_update (singular). The installer rejects recovery-mode installation, wrong userspace ABI and active TVD daemon/session processes. Do not bypass checks or install during active playback.

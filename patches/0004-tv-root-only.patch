@@ -1,0 +1,14 @@
+--- a/src/svr-auth.c
++++ b/src/svr-auth.c
+@@ -270,5 +270,11 @@
+ 	}
+ 
++	/* TVD: a shared administrative key store authorises only root. */
++	if (strcmp(username, "root") != 0 || ses.authstate.pw_uid != 0) {
++		ses.authstate.checkusername_failed = 1;
++		return DROPBEAR_FAILURE;
++	}
++
+ 	/* check if we are running as non-root, and login user is different from the server */
+ 	uid = geteuid();
+ 	if (!(DROPBEAR_SVR_MULTIUSER && uid == 0) && uid != ses.authstate.pw_uid) {

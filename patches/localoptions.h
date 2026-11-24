@@ -27,13 +27,10 @@
 /* Server + keygen only; no SSH client is shipped. */
 #define DROPBEAR_CLIENT 0
 
-/* Public-key auth is the secure default. Password auth is provided by the
- * 0003 password-file patch (DROPBEAR_PASSWD_FILE + PBKDF2-HMAC-SHA256), which
- * replaces the system crypt()/shadow dependency that Android lacks. PAM stays
- * off (Android has no PAM). Password auth is OFF at runtime by default anyway
- * (PASSWORD_AUTH in the config), so a user opts in before any password is set. */
+/* TVD: key-only server; no password or PAM support. */
+#define DROPBEAR_SVR_MULTIUSER 0
 #define DROPBEAR_SVR_PUBKEY_AUTH   1
-#define DROPBEAR_SVR_PASSWORD_AUTH 1
+#define DROPBEAR_SVR_PASSWORD_AUTH 0
 #define DROPBEAR_SVR_PAM_AUTH      0
 
 /* authorized_keys options (from/command/…) are honoured. */
@@ -42,17 +39,17 @@
 /* A sane default PATH for the login shell on Android. The first entry is the
  * module's stable bin dir, where vddropbear.sh symlinks the bundled tools
  * (scp, rsync, sftp-server) for the running ABI, so scp/rsync work remotely. */
-#define DEFAULT_PATH "/data/adb/vddropbear/bin:/system/bin:/system/xbin:/data/adb/ksu/bin:/sbin"
+#define DEFAULT_PATH "/data/adb/tvddropbear/bin:/system/bin:/system/xbin:/data/adb/ksu/bin:/sbin"
 /* Root logins use DEFAULT_ROOT_PATH, not DEFAULT_PATH, and on this module every
- * login is root, so this is the one that actually applies. Without it the session
+ * accepted login is root, so this is the one that actually applies. Without it the session
  * keeps upstream's /usr/sbin:/usr/bin:... (nonexistent on Android) and scp/rsync
  * are not found. */
-#define DEFAULT_ROOT_PATH "/data/adb/vddropbear/bin:/system/bin:/system/xbin:/data/adb/ksu/bin:/sbin"
+#define DEFAULT_ROOT_PATH "/data/adb/tvddropbear/bin:/system/bin:/system/xbin:/data/adb/ksu/bin:/sbin"
 
 /* SFTP (and sftp-based scp) use an external sftp-server. bionic has no
  * /usr/libexec, so point it at the same stable symlink. */
 #define DROPBEAR_SFTPSERVER 1
-#define SFTPSERVER_PATH "/data/adb/vddropbear/bin/sftp-server"
+#define SFTPSERVER_PATH "/data/adb/tvddropbear/bin/sftp-server"
 
 /* openpty() is forced on at build time (build.sh / CI) because the
  * cross-compile configure cannot probe the Android target for it; bionic

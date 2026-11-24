@@ -29,6 +29,15 @@ All notable, real and significant changes to **VD Dropbear** are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/); versions are tagged in the
 module (`module.prop`) and on GitHub Releases.
 
+## [Unreleased] — TVD fork
+
+- Host-only agent toolkit: guarded SSH/ADB execution, bounded private evidence and paging, targeted profiles, firmware-scoped capability knowledgebase, snapshots/diffs, selective reference mirror, UI observation and approved input, declarative physical tests and optional stdio MCP.
+- Shared device artefacts restricted to /sdcard/TVD-Engineering; no new resident TV process, no protected module storage changes. Exact single-APK verification and host CI are not physical release acceptance.
+
+- Headless ARM-only, key-only Android TV distribution; disabled until provisioned.
+- Removes updater and WebUI from the package; explicit lifecycle ownership and socket readiness.
+- Retains SFTP and rsync, independent ADB and upstream filesystem safety fixes.
+
 ## [v1.11] (2026-11-22)
 
 ### Fixed

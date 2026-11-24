@@ -1,0 +1,73 @@
+#!/system/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+MODDIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd) || exit 1
+. "$MODDIR/common/vddropbear.sh"
+case "${1:-}" in status|doctor|version|logs|fingerprint|boot) setup inspect || exit 1;; *) setup || exit 1;; esac
+load_config || { fail 'invalid config; use ADB to restore known-good config'; exit 1; }
+case "${1:-}" in
+    status) status "${2:-}"; exit $?;;
+    doctor) status; printf 'sdk=%s ce=%s\n' "$(getprop ro.build.version.sdk)" "$(getprop sys.user.0.ce_available)"; id; getenforce; exit 0;;
+    version) cat "$MODDIR/module.prop"; exit $?;;
+    logs) [ ! -f "$STATE/last-result" ] || cat "$STATE/last-result"; exit 0;;
+    fingerprint) private_file "$HOSTKEY" && "$BIN/dropbearkey" -y -f "$HOSTKEY"; exit $?;;
+    boot) [ "$ENABLED" = 1 ] || exit 0; setup || exit 1;;
+esac
+lock || exit 1
+load_config || exit 1
+case "${1:-}" in
+    init)
+        [ "${2:-}" = --accept-de-storage ] || { fail 'explicit DE storage acceptance required'; exit 1; }
+        if [ ! -e "$HOSTKEY" ] && [ ! -L "$HOSTKEY" ]; then
+            "$BIN/dropbearkey" -t ed25519 -f "$HOSTKEY" || exit 1
+            chmod 600 "$HOSTKEY" || exit 1
+        fi
+        private_file "$HOSTKEY" || exit 1
+        if [ ! -e "$KEYS" ] && [ ! -L "$KEYS" ]; then : > "$KEYS" || exit 1; fi
+        private_file "$KEYS" || exit 1
+        [ ! -e "$DATA/de-storage-accepted" ] && [ ! -L "$DATA/de-storage-accepted" ] || private_file "$DATA/de-storage-accepted" || exit 1
+        : > "$DATA/de-storage-accepted";;
+    keys)
+        private_file "$KEYS" || exit 1
+        case "${2:-}" in
+            list) cat "$KEYS";;
+            add|remove)
+                # Read one public Ed25519 key from stdin; canonicalise to type+blob.
+                IFS=' ' read -r type blob comment || exit 1
+                [ "$type" = ssh-ed25519 ] || exit 1
+                case "$blob" in ''|*[!A-Za-z0-9+/=]*) exit 1;; esac
+                [ "${#blob}" = 68 ] || { fail 'unexpected Ed25519 key encoding'; exit 1; }
+                tmp=$(mktemp "$DATA/keys.XXXXXX") || exit 1
+                if [ "$2" = add ]; then
+                    cat "$KEYS" > "$tmp" &&
+                        { grep -Fqx "$type $blob" "$KEYS" || printf '%s %s\n' "$type" "$blob" >> "$tmp"; } ||
+                        { rm -f "$tmp"; exit 1; }
+                else
+                    awk -v key="$type $blob" '$0!=key' "$KEYS" > "$tmp" || { rm -f "$tmp"; exit 1; }
+                fi
+                chmod 600 "$tmp" && mv -f "$tmp" "$KEYS" || { rm -f "$tmp"; exit 1; };;
+            *) exit 2;;
+        esac;;
+    config)
+        case "${2:-}" in
+            show) cat "$CONFIG";;
+            set)
+                # No bind/port changes while a listener may be active.
+                [ ! -e "$OWNER" ] && [ ! -e "$PIDFILE" ] || { fail 'stop listener over ADB before changing bind'; exit 1; }
+                case "${3:-}" in
+                    BIND) valid_bind "${4:-}" || exit 1; BIND=$4;;
+                    PORT) valid_port "${4:-}" || exit 1; PORT=$4;;
+                    *) exit 2;;
+                esac
+                write_config;;
+            *) exit 2;;
+        esac;;
+    enable) prepare && ENABLED=1 && write_config;;
+    disable) ENABLED=0; write_config && stop_listener;;
+    trial)
+        [ "$ENABLED" = 0 ] && [ "$BIND" = 127.0.0.1 ] || { fail "trial requires disabled, loopback configuration"; exit 1; }
+        ENABLED=1; start_listener;;
+    boot|start) start_listener;;
+    stop) stop_listener;;
+    restart) prepare && stop_listener && start_listener;;
+    *) printf '%s\n' 'usage: tvddctl status [--json]|doctor|version|logs|fingerprint|init --accept-de-storage|keys list/add/remove|config show/set BIND/PORT VALUE|enable|disable|trial|start|stop|restart' >&2; exit 2;;
+esac

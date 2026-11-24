@@ -78,3 +78,10 @@ TODO.local*
 core.*
 .idea/
 .vscode/
+
+# Host-only engineering artefacts and generated binaries
+/TVD-Engineering/
+/module/bin/
+/dist/
+__pycache__/
+.venv/

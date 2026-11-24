@@ -1,0 +1,24 @@
+name: Upstream and dependency audit
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          set -euo pipefail
+          {
+            echo '## Upstream versions (review changes; never auto-deploy)'
+            for repo in VD171/VD-dropbear mkj/dropbear RsyncProject/rsync madler/zlib openssh/openssh-portable; do
+              printf '%s: ' "$repo"
+              gh api "repos/$repo/releases/latest" --jq '.tag_name' || gh api "repos/$repo/tags?per_page=1" --jq '.[0].name'
+            done
+            echo 'Review https://rsync.samba.org/security.html and https://www.openssh.org/releasenotes.html'
+          } >> "$GITHUB_STEP_SUMMARY"

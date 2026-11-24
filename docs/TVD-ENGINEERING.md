@@ -37,3 +37,13 @@ First candidate has no live-device validation, no IPv6, no legacy SCP, no remote
 
 ## Dependency security and release provenance
 2026-11-24: upstream VD v1.11 bundled rsync 3.4.1, which is superseded by security releases. TVD pins rsync 3.5.2 (https://rsync.samba.org/security.html), OpenSSH 10.4p1 (https://www.openssh.org/releasenotes.html), zlib 1.4 (https://zlib.net/) and Dropbear 2026.94 source commit 28216cd9af822732a1549b78621c2ea9a76a0fe5. Verify pinned tarball hashes prior to extraction, record native binary provenance and ship exact rsync corresponding source with release. New dependency versions need native build and device qualification; do not assume old Android compatibility patches still suffice. The stable workflow promotes the exact tested ZIP rather than rebuilding it. Only an explicitly qualified ABI may be promoted. Record hash and source SHA before approval. Candidate version suffix must be removed in a new reviewed source commit before building a stable-version candidate; that candidate must itself be qualified.
+
+## Host tools
+From a workstation with Python 3 and explicit authenticated ADB serial / SSH alias:
+    python tools/a4ctl.py --context adb-root --serial SERIAL doctor
+    python tools/a4ctl.py --context ssh-root --host a4-tv exec "id; getenforce"
+    python tools/a4ctl.py --context ssh-root --host a4-tv --timeout 120 sync /vendor/etc/ ./reference/vendor-etc/
+    python tools/a4ctl.py --context adb-shell --serial SERIAL install test.apk
+    python tools/a4ctl.py --context adb-shell --serial SERIAL screenshot capture.png
+    python tools/qualify.py --serial SERIAL --host a4-tv --output evidence.json
+The SSH alias must resolve through host SSH configuration, with root login, dedicated key and verified known_hosts. Optionally pin ro.serialno with --expect-serial. No automatic fallback; timeouts mean outcome may be unknown. SSH transfers require modern OpenSSH SCP/SFTP and host rsync (e.g. WSL on Windows). Root ADB context is not a root file transfer transport; use SSH for protected files. Read-only qualification evidence compares contexts, records PSS/process ticks and selected state, and does not perform mutation. Inspect sensitive evidence before publishing.

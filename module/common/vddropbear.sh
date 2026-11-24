@@ -148,6 +148,7 @@ start_listener() {
         "$DAEMON" -F -e -j -k -T 3 -r "$HOSTKEY" -P "$PIDFILE" -p "$BIND:$PORT" \
         </dev/null >/dev/null 2>&1 &
     spawned=$!
+    spawned_token=$(start_id "$spawned") || spawned_token=
     i=0
     while [ "$i" -lt 10 ]; do
         if [ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ]; then
@@ -166,7 +167,9 @@ start_listener() {
         i=$((i+1)); sleep 1
     done
     # Do not kill a guessed PID. Only stop our still-running direct child.
-    if same_exe "$spawned"; then kill "$spawned" 2>/dev/null || :; fi
+    if [ -n "$spawned_token" ] && same_exe "$spawned" && [ "$(start_id "$spawned")" = "$spawned_token" ]; then
+        kill "$spawned" 2>/dev/null || :
+    fi
     # A failed launch may leave ambiguous state; report instead of guessing ownership.
     record 'start failed: no verified listener; inspect state over ADB' || :
     fail 'listener startup failed'
@@ -190,8 +193,9 @@ stop_listener() {
     return 0
 }
 status() {
-    state=stopped
+    state=stopped; pid=null
     if owned; then
+        pid=$listener
         state=not-ready
         socket_ready "$listener" && state=listening
     elif [ -e "$OWNER" ] || [ -e "$PIDFILE" ] || [ -L "$OWNER" ] || [ -L "$PIDFILE" ]; then
@@ -199,8 +203,8 @@ status() {
     elif [ "$ENABLED" = 0 ]; then state=disabled
     fi
     if [ "${1:-}" = --json ]; then
-        printf '{"state":"%s","enabled":%s,"bind":"%s","port":%s,"abi":"%s"}\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI"
+        printf '{"state":"%s","enabled":%s,"bind":"%s","port":%s,"abi":"%s","pid":%s}\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI" "$pid"
     else
-        printf 'state=%s enabled=%s bind=%s port=%s abi=%s\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI"
+        printf 'state=%s enabled=%s bind=%s port=%s abi=%s pid=%s\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI" "$pid"
     fi
 }

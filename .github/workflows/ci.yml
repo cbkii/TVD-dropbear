@@ -14,7 +14,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - run: bash scripts/preflight.sh
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck -S error -s sh module/*.sh module/common/*.sh module/tvddctl tests/*.sh
+          shellcheck -S error -s bash scripts/build.sh scripts/build-bundles.sh scripts/preflight.sh
+          bash scripts/preflight.sh
   native:
     needs: tests
     strategy:

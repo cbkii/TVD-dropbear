@@ -34,5 +34,6 @@ grep -Fq 'DROPBEAR_SVR_MULTIUSER 0' patches/localoptions.h
 grep -Fq 'ENABLED=0' module/common/config.default
 test ! -d module/vdlu
 test ! -d module/webroot
+sh tests/lifecycle.sh
 python3 -m unittest discover -s tests -p 'test_*.py'
 echo 'Source/host tests passed; physical validation NOT performed.'

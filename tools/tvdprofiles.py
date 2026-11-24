@@ -42,6 +42,10 @@ PROBES = {
     "storage": Probe("df -k /sdcard; getprop ro.crypto.state; getprop ro.crypto.type"),
     "devnull": Probe("test -c /dev/null && echo character-device"),
     "framework": Probe("command -v am pm cmd dumpsys service settings content app_process logcat"),
+    "uptime": Probe("cat /proc/uptime"),
+    "listener_processes": Probe("for p in $(pgrep -x tvddropbear 2>/dev/null); do echo PID=$p; cat /proc/$p/stat; if test -r /proc/$p/smaps_rollup; then grep '^Pss:' /proc/$p/smaps_rollup; else awk '/^Pss:/{sum+=$2}END{print \"Pss_kB=\"sum}' /proc/$p/smaps; fi; done","root"),
+    "unlock": Probe("getprop sys.user.0.ce_available; getprop ro.crypto.state; getprop ro.crypto.type"),
+
 }
 PROFILES = {
     "status": ("identity","context","devnull","storage"),
@@ -51,9 +55,9 @@ PROFILES = {
     "application": ("foreground","window","crash","packages","disabled"),
     "bluetooth": ("bluetooth","services"),
     "network": ("network","connectivity"),
-    "magisk": ("magisk","modules","listener","devnull"),
+    "magisk": ("magisk","modules","listener","listener_processes","devnull"),
     "ota": ("ota","identity"),
-    "startup": ("identity","processes","memory","foreground","crash"),
+    "startup": ("identity","uptime","unlock","processes","memory","foreground","crash"),
     "vendor": ("services","picture_services","framework"),
 }
 

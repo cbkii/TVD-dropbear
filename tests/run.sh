@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")/.."
 for f in module/*.sh module/common/*.sh module/tvddctl; do sh -n "$f"; done
 for f in scripts/build.sh scripts/build-bundles.sh; do bash -n "$f"; done
-python3 -m py_compile scripts/package.py tools/a4ctl.py
+python3 -m py_compile scripts/package.py tools/*.py
 . ./module/common/vddropbear.sh
 for bind in 127.0.0.1 192.168.1.22 10.2.3.4 172.16.2.4 172.31.9.4; do valid_bind "$bind"; done
 for bind in 0.0.0.0 8.8.8.8 172.32.1.2 127.0.0.2 192.168.001.2 192.168.1.255 192.168.1.0 '127.0.0.1;id' '1.2.3' ''; do

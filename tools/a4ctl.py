@@ -42,6 +42,10 @@ def local_path(value):
     return str(pathlib.Path(value).expanduser().resolve())
 def transfer_argv(args,op,first,second):
     remote=remote_path(first if op in ("pull","sync") else second)
+    if op=="push":
+        from tvdcore import validate_shared
+        validate_shared(remote)
+        if args.context!="adb-shell": raise ValueError("shared staging writes require unprivileged ADB-shell context")
     local=local_path(second if op in ("pull","sync") else first)
     if args.context=="adb-root":
         raise ValueError("adb-root does not make adb push/pull root; use ssh-root or adb-shell")
@@ -71,6 +75,11 @@ def screenshot(args,path):
         if tmp.exists(): tmp.unlink()
     return 0
 def main():
+    # Preserve the original CLI; advanced structured operations share tvdctl.
+    if len(sys.argv)>1 and sys.argv[1]=="engineering":
+        del sys.argv[1]
+        from tvdctl import main as engineering_main
+        return engineering_main()
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--context",choices=("adb-shell","adb-root","ssh-root"),required=True)
     p.add_argument("--serial"); p.add_argument("--host"); p.add_argument("--expect-serial")

@@ -4,7 +4,7 @@
 Upstream baseline v1.11 (5db14725c51be34e22c7fa9d3b7df491fa77a4c9). Preserve Dropbear cryptography, Android PTY, dynamic Bionic linkage, issue #1 private /dev key shim and PR #2 normal PID file. Remove VDLU, upstream feed, passwords and UI. ARM32/ARM64; daemon API 24, bundles API 28. No IPv6 or forwarding in first TV profile. IPv4 loopback or explicit RFC1918 address; no wildcard/public binds. No legacy scp -O; modern scp uses SFTP. rsync does not preserve ACL/xattrs in this build. Host key and public keys persist in root-owned /data/adb/tvddropbear. DE storage requires explicit acceptance; device encryption depends on firmware. Root credentials are not a privilege sandbox.
 
 ## Before install
-Use existing ADB with explicit -s SERIAL; verify root, SDK, ABI, getenforce, /dev/null character device, crypto state, toybox setsid, stat, awk, available listener ports and recovery. Reject coexistence with upstream; stop and remove it separately, preserve backups; never silently import credentials. Build exact ZIP, verify SHA256 and provenance. No physical tests have been run at this baseline. Test disposable extraction at /data/local/tmp with a separate test state namespace only after reviewing path isolation; current module uses fixed /data/adb/tvddropbear even outside Magisk, so do not run on a device with an existing installation.
+Use existing ADB with explicit -s SERIAL; verify root, SDK, ABI, getenforce, /dev/null character device, crypto state, toybox setsid, stat, awk, available listener ports and recovery. Reject coexistence with upstream; stop and remove it separately, preserve backups; never silently import credentials. Build exact ZIP, verify SHA256 and provenance. No physical tests have been run at this baseline. Do not extract executable test payloads into shared storage or create engineering workspaces under /data/local/tmp. Use the normal explicitly authorised disabled-by-default Magisk installation and loopback trial with independent ADB recovery. Existing protected module storage is reserved for the module.
 
 ## Provision
 Fresh installation does not enable the listener. Keep ADB reachable; use ADB root for lifecycle. On Magisk installed path:
@@ -50,3 +50,6 @@ The SSH alias must resolve through host SSH configuration, with root login, dedi
 
 ## Installer details
 Magisk v30.7 install_module excludes META-INF from extraction; the internal integrity manifest covers only extracted runtime files. The external ZIP SHA256 covers the installer itself. Magisk's pending module path is modules_update (singular). The installer rejects recovery-mode installation, wrong userspace ABI and active TVD daemon/session processes. Do not bypass checks or install during active playback.
+
+## Agent toolkit
+See [host toolkit](TVD-HOST-TOOLS.md) for structured execution, evidence, snapshots and capability tracking. The host retains raw output and only explicitly opted-in previews expose sensitive probes. Redaction is best-effort, not a guarantee. No new resident TV process.

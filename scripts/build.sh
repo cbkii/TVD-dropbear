@@ -24,9 +24,9 @@
 #
 # Fetches upstream Dropbear at the tag in ../UPSTREAM_VERSION, applies the
 # auditable patch set in ../patches/, and cross-compiles a DYNAMIC `dropbear`
-# and `dropbearkey` for all four Android ABIs:
-#     arm64-v8a  armeabi-v7a  x86  x86_64
-# Outputs land in ../module/bin/<abi>/ as `vddropbear` and `dropbearkey`.
+# and `dropbearkey` for ARM Android ABIs:
+#     arm64-v8a  armeabi-v7a
+# Outputs land in ../module/bin/<abi>/ as `tvddropbear` and `dropbearkey`.
 #
 # Requirements: Android NDK (r27+), git, make, patch. Set NDK to its path.
 #   NDK=/path/to/android-ndk ./scripts/build.sh
@@ -62,6 +62,8 @@ fi
 echo "==> applying patch set"
 git -C "$SRC" reset --hard "$VERSION"
 git -C "$SRC" clean -fdx
+# Record the exact source revision for artefact provenance.
+git -C "$SRC" rev-parse HEAD > "$WORK/dropbear.commit"
 cp "$ROOT/patches/localoptions.h" "$SRC/localoptions.h"
 for p in "$ROOT"/patches/*.patch; do
   [ -e "$p" ] || continue

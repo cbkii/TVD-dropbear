@@ -24,7 +24,7 @@ case "${1:-}" in
         private_file "$HOSTKEY" || exit 1
         if [ ! -e "$KEYS" ] && [ ! -L "$KEYS" ]; then : > "$KEYS" || exit 1; fi
         private_file "$KEYS" || exit 1
-        [ ! -L "$DATA/de-storage-accepted" ] || exit 1
+        [ ! -e "$DATA/de-storage-accepted" ] && [ ! -L "$DATA/de-storage-accepted" ] || private_file "$DATA/de-storage-accepted" || exit 1
         : > "$DATA/de-storage-accepted";;
     keys)
         private_file "$KEYS" || exit 1
@@ -63,8 +63,11 @@ case "${1:-}" in
         esac;;
     enable) prepare && ENABLED=1 && write_config;;
     disable) ENABLED=0; write_config && stop_listener;;
+    trial)
+        [ "$ENABLED" = 0 ] && [ "$BIND" = 127.0.0.1 ] || { fail "trial requires disabled, loopback configuration"; exit 1; }
+        ENABLED=1; start_listener;;
     boot|start) start_listener;;
     stop) stop_listener;;
     restart) prepare && stop_listener && start_listener;;
-    *) printf '%s\n' 'usage: tvddctl status [--json]|doctor|version|logs|fingerprint|init --accept-de-storage|keys list/add/remove|config show/set BIND/PORT VALUE|enable|disable|start|stop|restart' >&2; exit 2;;
+    *) printf '%s\n' 'usage: tvddctl status [--json]|doctor|version|logs|fingerprint|init --accept-de-storage|keys list/add/remove|config show/set BIND/PORT VALUE|enable|disable|trial|start|stop|restart' >&2; exit 2;;
 esac

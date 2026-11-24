@@ -22,8 +22,8 @@
 #  E-mail         : vd.priv8@pm.me
 # ======================================================================
 #
-# Cross-compiles the bundled tools as DYNAMIC (linker64 + bionic) binaries for every Android ABI:
-#     arm64-v8a  armeabi-v7a  x86  x86_64
+# Cross-compiles the bundled tools as DYNAMIC (linker64 + bionic) binaries for ARM Android ABIs:
+#     arm64-v8a  armeabi-v7a
 # Outputs land in ../module/bin/<abi>/ as `sftp-server`, `scp` and `rsync`.
 #
 #   - sftp-server, scp : OpenSSH portable, built --without-openssl (builtin crypto)
@@ -68,7 +68,7 @@ triple() {
 
 fetch() { # url outfile
   [ -f "$2" ] && return 0
-  curl -fsSL -o "$2" "$1"
+  curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 2 -o "$2" "$1"
 }
 
 echo "==> fetching sources (zlib $ZLIB_VERSION, rsync $RSYNC_VERSION, openssh $OPENSSH_VERSION)"
@@ -169,4 +169,5 @@ for ABI in $ABIS; do
   echo "    -> $OUT/{rsync,sftp-server}"
 done
 
+(cd "$WORK" && sha256sum zlib.tar.gz rsync.tar.gz openssh.tar.gz > source-sha256.txt)
 echo "==> done. Bundled tools in module/bin/<abi>/"

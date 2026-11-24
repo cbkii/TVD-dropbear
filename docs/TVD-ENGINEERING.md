@@ -12,7 +12,10 @@ Fresh installation does not enable the listener. Keep ADB reachable; use ADB roo
 Generate Ed25519 client keys on the host (one per agent). Pass only public key via stdin:
     adb -s SERIAL shell "su -c '/data/adb/modules/tvddropbear/tvddctl keys add'" < agent.pub
     adb -s SERIAL shell "su -c '/data/adb/modules/tvddropbear/tvddctl fingerprint'"
-Use authenticated ADB to verify the host fingerprint before trusting SSH. Enable/start only after owner authorises persistent service:
+Use authenticated ADB to verify the host fingerprint before trusting SSH. Trial without persistent enable:
+    adb -s SERIAL shell "su -c '/data/adb/modules/tvddropbear/tvddctl trial'"
+    adb -s SERIAL forward tcp:2222 tcp:2222
+After trial, stop via ADB. Enable/start only after owner authorises persistent service:
     adb -s SERIAL shell "su -c '/data/adb/modules/tvddropbear/tvddctl enable'"
     adb -s SERIAL shell "su -c '/data/adb/modules/tvddropbear/tvddctl start'"
     adb -s SERIAL forward tcp:2222 tcp:2222
@@ -20,7 +23,7 @@ Use authenticated ADB to verify the host fingerprint before trusting SSH. Enable
 Provision known_hosts via independently verified fingerprint first. For direct LAN, stop via ADB, set BIND to reserved private address, start. No forwarding or router exposure. The current boot entry makes one bounded start attempt; a LAN address not assigned at boot may require manual start. No automatic retries beyond initial readiness. Use ADB if SSH fails.
 
 ## Lifecycle and rollback
-tvddctl status --json, doctor, logs, fingerprint, keys list/add/remove, config show/set BIND/PORT, enable/disable/start/stop/restart. Key revocation prevents future use; existing sessions are not forcibly terminated. Stop targets only verified listener; sessions may survive. Disable writes ENABLED=0 then stops listener. If ambiguous state, inspect PID, /proc/PID/exe, /proc/PID/stat and sockets via ADB; never blindly clear ownership or kill by name. For lock left by crash, verify no controller/start in flight before removing the empty control.lock directory. Reboot only after approved rollback and ADB recovery verified. Magisk disable/remove is separate from listener state; uninstall retains keys and configuration. Back up before upgrade; stop via ADB and close sessions before changing native binaries. Never delete /dev/null or chmod Android parent directories. Do not run root agent sessions in parallel for mutations.
+tvddctl status --json, doctor, logs, fingerprint, keys list/add/remove, config show/set BIND/PORT, enable/disable/trial/start/stop/restart. Key revocation prevents future use; existing sessions are not forcibly terminated. Stop targets only verified listener; sessions may survive. Disable writes ENABLED=0 then stops listener. If ambiguous state, inspect PID, /proc/PID/exe, /proc/PID/stat and sockets via ADB; never blindly clear ownership or kill by name. For lock left by crash, verify no controller/start in flight before removing the empty control.lock directory. Reboot only after approved rollback and ADB recovery verified. PID/lock state lives in root-only /dev/tvddropbear/state (tmpfs, automatically cleared at boot); persistent keys/config remain under /data/adb/tvddropbear. Magisk disable/remove is separate from listener state; uninstall retains keys and configuration. Back up before upgrade; stop via ADB and close sessions before changing native binaries. Never delete /dev/null or chmod Android parent directories. Do not run root agent sessions in parallel for mutations.
 
 ## Qualification gates
 - Native binaries: ELF ABI/API, on-device help/version, keygen, PTY, command exit status, SFTP and rsync hashes. Reject passwords, unknown keys and non-root usernames.
@@ -30,4 +33,4 @@ tvddctl status --json, doctor, logs, fingerprint, keys list/add/remove, config s
 - Actual A4 acceptance and independent review required before persistent LAN use or stable release. Maintain evidence by SHA and artifact hash.
 
 ## Known limitations and follow-up
-First candidate has no live-device validation, no IPv6, no legacy SCP, no remote-forwarding, no password, no isolated non-root account, no persistent watchdog. Boot bind timing, platform env, PID races and actual /proc socket availability require qualification. Status logs contain last transition only; no growing daemon log. For detailed errors use a controlled foreground diagnostic after stopping listener; never start a competing listener. Use dedicated host keys and strict host checking. Host helper explicitly selects context, never retries ambiguous mutations.
+First candidate has no live-device validation, no IPv6, no legacy SCP, no remote-forwarding, no password, no isolated non-root account, no persistent watchdog. Boot bind timing, platform env, PID races and actual /proc socket availability require qualification. Status logs contain last transition only; no growing daemon log. Daemon stderr is discarded by default to avoid unbounded logs; detailed foreground diagnostic tooling is still pending. Never start a competing listener. Use dedicated host keys and strict host checking. Host helper explicitly selects context, never retries ambiguous mutations.

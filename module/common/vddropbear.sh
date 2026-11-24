@@ -3,14 +3,14 @@
 # Derived from VD Dropbear (Copyright 2026 VD171); TV lifecycle implementation.
 # This library is sourced; it does not perform mutations on load.
 DATA=/data/adb/tvddropbear
-STATE=$DATA/state
+SHIM=/dev/tvddropbear
+STATE=$SHIM/state
 KEYS=$DATA/authorized_keys
 HOSTKEY=$DATA/host_ed25519
 CONFIG=$DATA/config
 PIDFILE=$STATE/listener.pid
 OWNER=$STATE/listener.identity
 LOCK=$STATE/control.lock
-SHIM=/dev/tvddropbear
 BINLINK=$DATA/bin
 TOYBOX=/system/bin/toybox
 
@@ -27,7 +27,7 @@ private_file() {
 setup() {
     [ "$(id -u)" = 0 ] || { fail 'root required'; return 1; }
     umask 077
-    private_dir "$DATA" && private_dir "$STATE" || { fail 'unsafe state directory'; return 1; }
+    private_dir "$DATA" && private_dir "$SHIM" && private_dir "$STATE" || { fail 'unsafe state directory'; return 1; }
     ABI=$(getprop ro.product.cpu.abi)
     case "$ABI" in armeabi-v7a|arm64-v8a) ;; *) fail "unsupported ABI: $ABI"; return 1;; esac
     BIN=$MODDIR/bin/$ABI
@@ -37,6 +37,7 @@ setup() {
 }
 valid_bind() {
     # IPv4 loopback or RFC1918 unicast; no wildcard, public, multicast or ambiguous octal.
+    case "$1" in ''|*[!0-9.]*) return 1;; esac
     printf '%s\n' "$1" | awk -F. '
       NF!=4 {exit 1}
       {for(i=1;i<=4;i++) if($i !~ /^(0|[1-9][0-9]*)$/ || $i>255) exit 1
@@ -166,6 +167,7 @@ start_listener() {
     done
     # Do not kill a guessed PID. Only stop our still-running direct child.
     if same_exe "$spawned"; then kill "$spawned" 2>/dev/null || :; fi
+    # A failed launch may leave ambiguous state; report instead of guessing ownership.
     record 'start failed: no verified listener; inspect state over ADB' || :
     fail 'listener startup failed'
 }
@@ -185,6 +187,7 @@ stop_listener() {
     done
     rm -f "$OWNER" "$PIDFILE"
     record 'listener stopped; existing authenticated sessions may remain' || :
+    return 0
 }
 status() {
     state=stopped

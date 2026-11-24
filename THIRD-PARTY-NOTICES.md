@@ -34,10 +34,9 @@ listed here; the full license texts ship alongside the binaries (in `module/lice
 |-----------|------|---------|--------|
 | **Dropbear** (`dropbear`, `dropbearkey`) | the SSH server | MIT-style | <https://github.com/mkj/dropbear> |
 | libtomcrypt, libtommath | crypto, used by Dropbear | public domain / Unlicense | (vendored in Dropbear) |
-| **sftp-server**, **scp** | file transfer (OpenSSH) | BSD-style | <https://github.com/openssh/openssh-portable> |
+| **sftp-server** | file transfer (OpenSSH) | BSD-style | <https://github.com/openssh/openssh-portable> |
 | zlib | compression, used by the OpenSSH tools | zlib license | <https://github.com/madler/zlib> |
 | **rsync** | file sync over SSH | **GPL-3.0-or-later** | <https://github.com/RsyncProject/rsync> |
-| `ed25519-mini` | signature verify for the [VDLiveUpdate](https://github.com/VD171/VDLiveUpdate) (VDLU) updater | public domain (TweetNaCl) | <https://tweetnacl.cr.yp.to/> (provenance: `module/vdlu/verify/PROVENANCE.json`) |
 
 ## GPL compliance (rsync)
 
@@ -48,8 +47,7 @@ with the GPL we:
 - ship the full **GPL-3.0** text with the binary (`module/licenses/rsync-COPYING`),
 - build rsync from a pinned upstream release recorded in CI, and
 - provide the **corresponding source**: the exact upstream commit/tag and our build recipe are in the
-  build workflow, and a copy of the source is available on request at the contact in
-  [`SECURITY.md`](SECURITY.md) / the project's contacts for three years from distribution.
+  build workflow, and the release must include the corresponding source archive, including the build recipe, alongside the ZIP.
 
 If you prefer a fully permissive distribution, rsync can be left out at build time (the SSH server and
 the OpenSSH file-transfer tools are all permissively licensed); the module works without it.

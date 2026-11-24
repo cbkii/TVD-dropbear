@@ -36,7 +36,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${NDK:?set NDK to your Android NDK path}"
 : "${API:=24}"                          # minimum supported Android API (openpty needs >=23)
 VERSION="$(tr -d ' \n' < "$ROOT/UPSTREAM_VERSION")"
-ABIS="${ABIS:-arm64-v8a armeabi-v7a x86 x86_64}"
+ABIS="${ABIS:-arm64-v8a armeabi-v7a}"
 PROGRAMS="dropbear dropbearkey"
 
 WORK="$ROOT/build"
@@ -60,8 +60,8 @@ if [ ! -d "$SRC" ]; then
 fi
 
 echo "==> applying patch set"
-git -C "$SRC" stash -u >/dev/null 2>&1 || true   # start from a clean tree each run
-git -C "$SRC" checkout -- . 2>/dev/null || true
+git -C "$SRC" reset --hard "$VERSION"
+git -C "$SRC" clean -fdx
 cp "$ROOT/patches/localoptions.h" "$SRC/localoptions.h"
 for p in "$ROOT"/patches/*.patch; do
   [ -e "$p" ] || continue
@@ -83,9 +83,9 @@ for ABI in $ABIS; do
     "$STRIP" dropbear dropbearkey
   )
   OUT="$ROOT/module/bin/$ABI"; mkdir -p "$OUT"
-  cp "$SRC/dropbear"    "$OUT/vddropbear"
+  cp "$SRC/dropbear"    "$OUT/tvddropbear"
   cp "$SRC/dropbearkey" "$OUT/dropbearkey"
-  chmod 0755 "$OUT/vddropbear" "$OUT/dropbearkey"
+  chmod 0755 "$OUT/tvddropbear" "$OUT/dropbearkey"
 done
 
 echo "==> done. Binaries in module/bin/<abi>/"

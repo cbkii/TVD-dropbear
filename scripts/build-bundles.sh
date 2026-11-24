@@ -45,7 +45,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # macro-redefines some that are missing (e.g. mblen/nl_langinfo), which breaks bionic's headers. API 28
 # has them, so the compat stays out of the way. (The daemon has no such deps and stays at its own API.)
 : "${API:=28}"
-ABIS="${ABIS:-arm64-v8a armeabi-v7a x86 x86_64}"
+ABIS="${ABIS:-arm64-v8a armeabi-v7a}"
 
 ZLIB_VERSION="${ZLIB_VERSION:-1.3.1}"
 RSYNC_VERSION="${RSYNC_VERSION:-3.4.1}"
@@ -161,13 +161,12 @@ for ABI in $ABIS; do
       --with-zlib="$ZPREFIX" --cache-file="$ABIWORK/openssh.cache" \
       CFLAGS="-O2 -fPIE -DHAVE_ATTRIBUTE__SENTINEL__=1 -DHAVE_ATTRIBUTE__NONNULL__=1" \
       LDFLAGS="-pie -L$ZPREFIX/lib -Wl,--allow-multiple-definition" >/dev/null
-    make -j"$(nproc)" sftp-server scp >/dev/null
-    "$STRIP" sftp-server scp )
+    make -j"$(nproc)" sftp-server >/dev/null
+    "$STRIP" sftp-server )
   cp "$OSRC/sftp-server" "$OUT/sftp-server"
-  cp "$OSRC/scp"         "$OUT/scp"
 
-  chmod 0755 "$OUT/rsync" "$OUT/sftp-server" "$OUT/scp"
-  echo "    -> $OUT/{rsync,sftp-server,scp}"
+  chmod 0755 "$OUT/rsync" "$OUT/sftp-server"
+  echo "    -> $OUT/{rsync,sftp-server}"
 done
 
 echo "==> done. Bundled tools in module/bin/<abi>/"

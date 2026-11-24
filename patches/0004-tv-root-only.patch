@@ -1,0 +1,14 @@
+--- a/src/svr-auth.c
++++ b/src/svr-auth.c
+@@ -225,6 +225,11 @@
+ 		dropbear_exit("Attempted username with a null byte");
+ 	}
+ 
++	/* TVD: a shared administrative key store authorises only the root account. */
++	if (strcmp(username, "root") != 0) {
++		return DROPBEAR_FAILURE;
++	}
++
+ 	if (ses.authstate.username == NULL) {
+ 		/* first request */
+ 		fill_passwd(username);

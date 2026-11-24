@@ -29,6 +29,12 @@ All notable, real and significant changes to **VD Dropbear** are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/); versions are tagged in the
 module (`module.prop`) and on GitHub Releases.
 
+## [Unreleased] — TVD fork
+
+- Headless ARM-only, key-only Android TV distribution; disabled until provisioned.
+- Removes updater and WebUI from the package; explicit lifecycle ownership and socket readiness.
+- Retains SFTP and rsync, independent ADB and upstream filesystem safety fixes.
+
 ## [v1.11] (2026-11-22)
 
 ### Fixed

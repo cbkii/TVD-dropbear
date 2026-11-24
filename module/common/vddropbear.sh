@@ -1,310 +1,203 @@
 #!/system/bin/sh
-# ======================================================================
-#  VD Dropbear  ::  standalone, configurable rooted SSH daemon
-#  A private SSH server for KernelSU/APatch/Magisk. No invasive ADB exposure.
-#  Core library: config, secret-store resolution, daemon lifecycle, argv builder.
-#
-#  Copyright (C) 2026  VD171
-#  SPDX-License-Identifier: Apache-2.0
-#
-#  Licensed under the Apache License, Version 2.0; you may obtain a copy at
-#  http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Site           : https://vd171.ru
-#  Site           : https://vd.priv8.ru
-#  Source         : https://github.com/VD171/VD-dropbear
-#  GitHub         : @VD171 https://github.com/VD171
-#  XDA-Developers : @VD171 https://xdaforums.com/m/vd171.4699873/
-#  XDA thread     : https://xdaforums.com/t/VD-Dropbear.4808524/
-#  Telegram       : @VD_Priv8 https://t.me/VD_Priv8
-#  Channel        : @Priv8_VD https://t.me/Priv8_VD
-#  Discord        : @VD.Priv8 https://discord.com/users/1296831918989639721
-#  E-mail         : vd.priv8@pm.me
-# ======================================================================
-# Sourced by service.sh / action.sh / the WebUI backend.
-# POSIX sh (Android mksh). No external deps beyond the shipped binaries + toybox.
-#
-# Responsibilities:
-#   - locate the module, the persistent config and the secret store (DE vs CE, per BFU/AFU mode)
-#   - load configuration (shipped defaults, then the user's persistent overrides)
-#   - manage exactly ONE daemon instance (start / stop / status / restart)
-#   - turn the configuration into a dropbear argument vector
-#
-# Security model (see README):
-#   - settings are not secret and live on DE storage (readable at boot).
-#   - secrets (host keys, authorized_keys, password hashes) live on CE storage
-#     (/data/misc_ce, unlocked only after the user unlocks the device) UNLESS the user
-#     opts into START_IN_BFU, in which case they live on DE storage and are readable
-#     before first unlock, a deliberate, documented exposure trade-off.
+# SPDX-License-Identifier: Apache-2.0
+# Derived from VD Dropbear (Copyright 2026 VD171); TV lifecycle implementation.
+# This library is sourced; it does not perform mutations on load.
+DATA=/data/adb/tvddropbear
+STATE=$DATA/state
+KEYS=$DATA/authorized_keys
+HOSTKEY=$DATA/host_ed25519
+CONFIG=$DATA/config
+PIDFILE=$STATE/listener.pid
+OWNER=$STATE/listener.identity
+LOCK=$STATE/control.lock
+SHIM=/dev/tvddropbear
+BINLINK=$DATA/bin
+TOYBOX=/system/bin/toybox
 
-VDDB_NAME="vddropbear"
-VDDB_PROC="vddropbear"          # argv[0] the daemon runs under (status/stop match this exactly)
-
-# --- locations -------------------------------------------------------------
-# MODDIR is passed by the caller when known; fall back to the standard module path.
-[ -n "$MODDIR" ] || MODDIR="/data/adb/modules/$VDDB_NAME"
-# Pick the binary dir for this device/emulator ABI. ro.product.cpu.abi already
-# reports one of arm64-v8a / armeabi-v7a / x86_64 / x86, which are exactly our dir
-# names; fall back to armeabi-v7a if that ABI was not shipped.
-VDDB_ABI="$(getprop ro.product.cpu.abi 2>/dev/null)"
-[ -d "$MODDIR/bin/$VDDB_ABI" ] || VDDB_ABI="armeabi-v7a"
-VDDB_BIN_DIR="$MODDIR/bin/$VDDB_ABI"
-# The server binary is shipped under the name "vddropbear" so its process name
-# (comm) is exactly that: mksh has no `exec -a`, so this is how pgrep -x matches it.
-VDDB_DROPBEAR="$VDDB_BIN_DIR/vddropbear"
-VDDB_KEYGEN="$VDDB_BIN_DIR/dropbearkey"
-# setsid puts the daemon in its own session so the KSU manager's Action does not
-# block on the action's process group. Prefer the shipped toybox, else the system one.
-if [ -x "$VDDB_BIN_DIR/toybox" ]; then VDDB_TOYBOX="$VDDB_BIN_DIR/toybox"; else VDDB_TOYBOX="/system/bin/toybox"; fi
-
-# Persistent DE store: settings + runtime state + (only in BFU mode) secrets.
-# Lives outside the module dir so it survives module updates/removal.
-VDDB_DATA="/data/adb/$VDDB_NAME"
-VDDB_CONFIG="$VDDB_DATA/config"
-VDDB_STATE="$VDDB_DATA/state"
-VDDB_LOG="$VDDB_STATE/daemon.log"
-VDDB_DE_SECRET="$VDDB_DATA/secret"          # used only when START_IN_BFU=1
-
-# Credential-encrypted store: the secure default home for secrets (AFU only).
-VDDB_CE_SECRET="/data/misc_ce/0/$VDDB_NAME/secret"
-
-# --- small helpers ---------------------------------------------------------
-vddb_log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$VDDB_LOG" 2>/dev/null; }
-
-# True once user 0's credential-encrypted storage is available (i.e. after unlock).
-vddb_ce_ready() { [ "$(getprop sys.user.0.ce_available 2>/dev/null)" = "true" ]; }
-
-# --- configuration ---------------------------------------------------------
-# Defaults are defined here so a missing/partial config file can never leave a
-# value unset. The shipped common/config.default documents every key for users;
-# this block is the authoritative fallback.
-vddb_defaults() {
-    ENABLED=1
-    START_IN_BFU=0
-    PORT=2222
-    # Listening is composable: any combination of the toggles below is allowed,
-    # and they are merged into one set of binds. LISTEN_IPV4/IPV6 filter the family
-    # of the loopback/all binds; specific addresses carry their own family and may
-    # carry their own ":port". If nothing is selected we fall back to loopback.
-    LISTEN_LOOPBACK=1           # localhost only (127.0.0.1 / ::1)
-    LISTEN_ALL=0               # every interface (0.0.0.0 / ::), exposes the device
-    LISTEN_IPV4=1
-    LISTEN_IPV6=1
-    LISTEN_ADDRESSES=""        # extra specific binds: "addr" (uses PORT) or "addr:port", comma-separated
-    HIDE_IDENT=1
-    IDENT_STRING=""             # empty => neutral built-in (set by the patched binary)
-    PASSWORD_AUTH=0             # a login defaults to ROOT: keys are strongly preferred
-    PUBKEY_AUTH=1
-    MAX_AUTH_TRIES=3
-    LOGIN_SHELL=""
-    HOME_DIR=""
-    EXTRA_ENV=""
-    PASS_ENV=1                  # pass the daemon's environment on to login sessions (dropbear -e)
-    IDLE_TIMEOUT=0
-    KEEPALIVE=0
-    ALLOW_LOCAL_FORWARD=0
-    ALLOW_REMOTE_FORWARD=0
-    GATEWAY_PORTS=0
-    RECEIVE_WINDOW=""
-    HOSTKEY_TYPE="ed25519"
+fail() { printf '%s\n' "$*" >&2; return 1; }
+private_dir() {
+    [ ! -L "$1" ] || return 1
+    [ -d "$1" ] || mkdir -m 700 "$1" || return 1
+    [ "$(stat -c '%u:%a' "$1")" = 0:700 ]
 }
-
-vddb_load_config() {
-    vddb_defaults
-    # shellcheck disable=SC1090
-    [ -f "$VDDB_CONFIG" ] && . "$VDDB_CONFIG"
-    # Normalise the values that flow unquoted into the daemon argv.
-    [ "$PORT" -gt 0 ] 2>/dev/null || PORT=2222
-    case "$HOSTKEY_TYPE" in ed25519|rsa|ecdsa) ;; *) HOSTKEY_TYPE=ed25519 ;; esac
-    case "$RECEIVE_WINDOW" in *[!0-9]*) RECEIVE_WINDOW= ;; esac
+private_file() {
+    [ -f "$1" ] && [ ! -L "$1" ] &&
+        [ "$(stat -c '%u:%a' "$1")" = 0:600 ]
 }
-
-# Resolve the active secret directory for the CURRENT boot stage + mode.
-# BFU mode  -> DE store (readable before unlock, exposed: documented trade-off).
-# AFU mode  -> CE store (unlocked only after the user authenticates).
-vddb_secret_dir() {
-    if [ "$START_IN_BFU" = "1" ]; then
-        echo "$VDDB_DE_SECRET"
-    else
-        echo "$VDDB_CE_SECRET"
-    fi
+setup() {
+    [ "$(id -u)" = 0 ] || { fail 'root required'; return 1; }
+    umask 077
+    private_dir "$DATA" && private_dir "$STATE" || { fail 'unsafe state directory'; return 1; }
+    ABI=$(getprop ro.product.cpu.abi)
+    case "$ABI" in armeabi-v7a|arm64-v8a) ;; *) fail "unsupported ABI: $ABI"; return 1;; esac
+    BIN=$MODDIR/bin/$ABI
+    DAEMON=$BIN/tvddropbear
+    [ -x "$DAEMON" ] && [ -x "$BIN/dropbearkey" ] &&
+        [ -x "$BIN/sftp-server" ] && [ -x "$BIN/rsync" ] || { fail 'incomplete native payload'; return 1; }
 }
-
-# --- host key --------------------------------------------------------------
-vddb_hostkey_path() { echo "$(vddb_secret_dir)/hostkey_${HOSTKEY_TYPE}"; }
-
-vddb_ensure_hostkey() {
-    _d="$(vddb_secret_dir)"; _k="$(vddb_hostkey_path)"
-    mkdir -p "$_d" 2>/dev/null; chmod 700 "$_d" 2>/dev/null
-    if [ ! -s "$_k" ]; then
-        vddb_log "generating $HOSTKEY_TYPE host key at $_k"
-        "$VDDB_KEYGEN" -t "$HOSTKEY_TYPE" -f "$_k" >/dev/null 2>&1
-        chmod 600 "$_k" 2>/dev/null
-    fi
-    [ -s "$_k" ]
+valid_bind() {
+    # IPv4 loopback or RFC1918 unicast; no wildcard, public, multicast or ambiguous octal.
+    printf '%s\n' "$1" | awk -F. '
+      NF!=4 {exit 1}
+      {for(i=1;i<=4;i++) if($i !~ /^(0|[1-9][0-9]*)$/ || $i>255) exit 1
+       if($0=="127.0.0.1") exit 0
+       if($4==0 || $4==255) exit 1
+       if($1==10 || ($1==172 && $2>=16 && $2<=31) || ($1==192 && $2==168)) exit 0
+       exit 1}'
 }
-
-# --- authorized_keys shim --------------------------------------------------
-# Dropbear's checkpubkeyperms() walks every PARENT directory of the authorized_keys
-# path and rejects any that is group/other-writable or not owned by root/the user.
-# Android's /data tree is system-owned and group-writable (0771), so a keys file
-# under /data (CE or DE) is rejected and pubkey auth fails. Expose it through a
-# root-owned 0700 shim on tmpfs (/dev): the parent walk then sees a clean
-# /dev/vddropbear -> /dev -> / chain, all root-owned and non-writable by others.
-# The real key file is reachable only through that root-only 0700 shim dir, so no
-# non-root process can substitute it (the shim, not the leaf's own mode, is what
-# makes it safe - checkpubkeyperms checks the parents, not the file). tmpfs is
-# recreated each start (service.sh), so it persists across reboots in practice.
-# Falls back to the real path if the shim can't be made.
-vddb_authkeys_link() {
-    _real="$1"; _shim=/dev/vddropbear
-    if mkdir -p "$_shim" 2>/dev/null && chmod 700 "$_shim" 2>/dev/null; then
-        chown 0:0 "$_shim" 2>/dev/null
-        ln -sfn "$_real" "$_shim/authorized_keys" 2>/dev/null && { echo "$_shim/authorized_keys"; return 0; }
-    fi
-    echo "$_real"
+valid_port() {
+    case "$1" in ''|*[!0-9]*|0*) return 1;; esac
+    [ "${#1}" -le 5 ] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
 }
-
-# --- argument vector -------------------------------------------------------
-# Emits the dropbear argv (one token per line) from the loaded config.
-# The patched binary honours DROPBEAR_AUTHKEYS / DROPBEAR_PASSWD_FILE / DROPBEAR_IDENT
-# via the environment (exported by vddb_export_env), so paths stay config-driven.
-vddb_build_args() {
-    _sdir="$(vddb_secret_dir)"
-    # host key
-    printf '%s\n' -r "$(vddb_hostkey_path)"
-    # composable listen binds: any mix of all / loopback / specific, filtered by family
-    _bound=0
-    if [ "$LISTEN_ALL" = "1" ]; then
-        [ "$LISTEN_IPV4" = "1" ] && { printf '%s\n' -p "0.0.0.0:$PORT"; _bound=1; }
-        [ "$LISTEN_IPV6" = "1" ] && { printf '%s\n' -p "[::]:$PORT";    _bound=1; }
-    elif [ "$LISTEN_LOOPBACK" = "1" ]; then
-        [ "$LISTEN_IPV4" = "1" ] && { printf '%s\n' -p "127.0.0.1:$PORT"; _bound=1; }
-        [ "$LISTEN_IPV6" = "1" ] && { printf '%s\n' -p "[::1]:$PORT";     _bound=1; }
-    fi
-    for _b in $(echo "$LISTEN_ADDRESSES" | tr ',' ' '); do
-        [ -n "$_b" ] || continue
-        case "$_b" in
-            *]:[0-9]*)  : ;;                  # [ipv6]:port already complete
-            \[*\])      _b="$_b:$PORT" ;;      # [ipv6] without a port
-            *:*:*)      _b="[$_b]:$PORT" ;;    # bare ipv6 -> bracket it and add the port
-            *:[0-9]*)   : ;;                  # ipv4:port already complete
-            *)          _b="$_b:$PORT" ;;      # ipv4 without a port
+load_config() {
+    private_file "$CONFIG" || return 1
+    ENABLED= BIND= PORT=
+    while IFS='=' read -r k v || [ -n "$k$v" ]; do
+        case "$k" in
+            ENABLED) [ -z "$ENABLED" ] || return 1; case "$v" in 0|1) ENABLED=$v;; *) return 1;; esac;;
+            BIND) [ -z "$BIND" ] && valid_bind "$v" || return 1; BIND=$v;;
+            PORT) [ -z "$PORT" ] && valid_port "$v" || return 1; PORT=$v;;
+            *) return 1;;
         esac
-        printf '%s\n' -p "$_b"; _bound=1
-    done
-    # Safety net: if the user cleared every option, bind loopback rather than
-    # letting dropbear fall back to listening on every interface.
-    [ "$_bound" = "1" ] || printf '%s\n' -p "127.0.0.1:$PORT"
-    # Foreground + log to stderr (captured by service.sh). The pid file MUST go to the state
-    # dir, never /dev/null: dropbear unlinks its pid file on exit, so `-P /dev/null` deleted
-    # the /dev/null char device each restart -> every app died at launch until reboot (PR #2).
-    printf '%s\n' -F -P "$VDDB_STATE/vddropbear.pid"
-    # pass the server process environment on to login sessions (dropbear -e). A rooted ops
-    # daemon is started by the module service with the platform environment set (on Android:
-    # BOOTCLASSPATH, ANDROID_ROOT/DATA, etc.); tools launched over SSH that fork app_process
-    # (am, content, pm instrument) need it, and a bare login env silently breaks them.
-    [ "$PASS_ENV" = "1" ] && printf '%s\n' -e
-    # auth policy
-    [ "$PASSWORD_AUTH" = "1" ] || printf '%s\n' -s          # -s disables password auth
-    [ "$MAX_AUTH_TRIES" -gt 0 ] 2>/dev/null && printf '%s\n' -T "$MAX_AUTH_TRIES"
-    # forwarding (vectors): off by default
-    [ "$ALLOW_LOCAL_FORWARD" = "1" ]  || printf '%s\n' -j
-    [ "$ALLOW_REMOTE_FORWARD" = "1" ] || printf '%s\n' -k
-    [ "$GATEWAY_PORTS" = "1" ] && printf '%s\n' -a
-    # session timers
-    [ "$IDLE_TIMEOUT" -gt 0 ] 2>/dev/null && printf '%s\n' -I "$IDLE_TIMEOUT"
-    [ "$KEEPALIVE" -gt 0 ] 2>/dev/null && printf '%s\n' -K "$KEEPALIVE"
-    [ -n "$RECEIVE_WINDOW" ] && printf '%s\n' -W "$RECEIVE_WINDOW"
+    done < "$CONFIG"
+    [ -n "$ENABLED" ] && [ -n "$BIND" ] && [ -n "$PORT" ]
 }
-
-# Environment the daemon inherits (and passes to login sessions).
-vddb_export_env() {
-    _sdir="$(vddb_secret_dir)"
-    export HOME="${HOME_DIR:-$MODDIR}"
-    # the bundled tools (scp/rsync/sftp-server) live under the module's stable bin dir
-    export PATH="$VDDB_DATA/bin:${PATH:-/system/bin:/system/xbin}"
-    # Public-key auth: point dropbear at the keys file only when the toggle is on.
-    # With it off, no authorized_keys is exported, so no key authenticates.
-    if [ "$PUBKEY_AUTH" = "1" ]; then
-        export DROPBEAR_AUTHKEYS="$(vddb_authkeys_link "$_sdir/authorized_keys")"
+write_config() {
+    tmp=$(mktemp "$DATA/config.XXXXXX") || return 1
+    printf 'ENABLED=%s\nBIND=%s\nPORT=%s\n' "$ENABLED" "$BIND" "$PORT" > "$tmp" &&
+        chmod 600 "$tmp" && mv -f "$tmp" "$CONFIG" || { rm -f "$tmp"; return 1; }
+}
+lock() {
+    mkdir -m 700 "$LOCK" 2>/dev/null || { fail 'control lock held; inspect over ADB, never clear blindly'; return 1; }
+    trap 'rmdir "$LOCK" 2>/dev/null || :' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+# /proc stat comm can contain spaces and parentheses. Strip through final ")".
+start_id() {
+    line=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+    rest=${line##*) }
+    set -- $rest
+    [ "$#" -ge 20 ] && [ "$1" != Z ] || return 1
+    printf '%s\n' "${20}"
+}
+valid_pid() { case "$1" in ''|*[!0-9]*|0*) return 1;; esac; [ "$1" -gt 1 ] 2>/dev/null; }
+same_exe() { valid_pid "$1" && [ "$(readlink "/proc/$1/exe" 2>/dev/null)" = "$DAEMON" ]; }
+owned() {
+    private_file "$OWNER" || return 1
+    IFS=' ' read -r listener token extra < "$OWNER" || return 1
+    [ -z "$extra" ] && same_exe "$listener" && [ "$(start_id "$listener")" = "$token" ] && [ -n "$token" ]
+}
+socket_ready() {
+    # Verify that the recorded listener owns the exact expected listening socket.
+    address=$(printf '%s\n' "$BIND" | awk -F. '{printf "%02X%02X%02X%02X",$4,$3,$2,$1}')
+    hexport=$(printf '%04X' "$PORT")
+    for fd in /proc/"$1"/fd/*; do
+        link=$(readlink "$fd" 2>/dev/null) || continue
+        case "$link" in socket:\[*\]) inode=${link#socket:\[}; inode=${inode%\]};; *) continue;; esac
+        awk -v addr="$address:$hexport" -v inode="$inode" \
+          '$2==addr && $4=="0A" && $10==inode {found=1} END {exit !found}' /proc/net/tcp && return 0
+    done
+    return 1
+}
+record() {
+    tmp=$(mktemp "$STATE/result.XXXXXX") || return 1
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$*" > "$tmp" &&
+        mv -f "$tmp" "$STATE/last-result" || { rm -f "$tmp"; return 1; }
+}
+prepare() {
+    [ -f "$DATA/de-storage-accepted" ] && private_file "$DATA/de-storage-accepted" ||
+        { fail 'run init --accept-de-storage over authenticated ADB first'; return 1; }
+    private_file "$HOSTKEY" && private_file "$KEYS" && [ -s "$KEYS" ] ||
+        { fail 'host key or authorised keys missing'; return 1; }
+    [ ! -d /data/adb/modules/vddropbear ] && [ ! -d /data/adb/modules_updates/vddropbear ] ||
+        { fail 'upstream installation present; migrate explicitly'; return 1; }
+    private_dir "$SHIM" && private_dir "$BINLINK" || return 1
+    # The Android /data ancestors fail upstream's permission walk. Preserve
+    # upstream issue #1's root-owned /dev shim; do not chmod Android ancestors.
+    [ ! -e "$SHIM/authorized_keys" ] || [ -L "$SHIM/authorized_keys" ] || return 1
+    ln -sfn "$KEYS" "$SHIM/authorized_keys" || return 1
+    for tool in sftp-server rsync; do
+        [ ! -e "$BINLINK/$tool" ] || [ -L "$BINLINK/$tool" ] || return 1
+        ln -sfn "$BIN/$tool" "$BINLINK/$tool" || return 1
+    done
+}
+start_listener() {
+    [ "$ENABLED" = 1 ] || { fail 'disabled; provision and enable first'; return 1; }
+    [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || { fail 'Magisk module disabled or pending removal'; return 1; }
+    if owned; then
+        socket_ready "$listener" && return 0
+        fail 'owned listener exists but configured socket is not ready; inspect before restart'; return 1
+    fi
+    # A previous interrupted start cannot safely be adopted by guessing a PID.
+    [ ! -e "$OWNER" ] && [ ! -e "$PIDFILE" ] &&
+        [ ! -L "$OWNER" ] && [ ! -L "$PIDFILE" ] ||
+        { fail 'stale/ambiguous ownership; inspect over ADB before clearing state'; return 1; }
+    prepare || return 1
+    # Pass only platform variables needed by app_process and native tooling.
+    # No password support is compiled in; forwarding is disabled.
+    "$TOYBOX" setsid env -i \
+        "PATH=$BINLINK:/system/bin:/system/xbin" "HOME=$DATA" \
+        "ANDROID_ROOT=${ANDROID_ROOT:-/system}" "ANDROID_DATA=${ANDROID_DATA:-/data}" \
+        "BOOTCLASSPATH=${BOOTCLASSPATH:-}" "SYSTEMSERVERCLASSPATH=${SYSTEMSERVERCLASSPATH:-}" \
+        "ANDROID_STORAGE=${ANDROID_STORAGE:-/storage}" "EXTERNAL_STORAGE=${EXTERNAL_STORAGE:-/sdcard}" \
+        "ANDROID_RUNTIME_ROOT=${ANDROID_RUNTIME_ROOT:-}" "ANDROID_ART_ROOT=${ANDROID_ART_ROOT:-}" \
+        "ANDROID_I18N_ROOT=${ANDROID_I18N_ROOT:-}" "ANDROID_TZDATA_ROOT=${ANDROID_TZDATA_ROOT:-}" \
+        "DROPBEAR_AUTHKEYS=$SHIM/authorized_keys" \
+        "$DAEMON" -F -e -j -k -T 3 -r "$HOSTKEY" -P "$PIDFILE" -p "$BIND:$PORT" \
+        </dev/null >/dev/null 2>&1 &
+    spawned=$!
+    i=0
+    while [ "$i" -lt 10 ]; do
+        if [ -f "$PIDFILE" ] && [ ! -L "$PIDFILE" ]; then
+            candidate=$(cat "$PIDFILE")
+            if same_exe "$candidate"; then
+                token=$(start_id "$candidate") || break
+                if socket_ready "$candidate"; then
+                    tmp=$(mktemp "$STATE/owner.XXXXXX") || break
+                    printf '%s %s\n' "$candidate" "$token" > "$tmp" &&
+                        mv -f "$tmp" "$OWNER" || { rm -f "$tmp"; break; }
+                    record "listening $BIND:$PORT pid=$candidate" || :
+                    return 0
+                fi
+            fi
+        fi
+        i=$((i+1)); sleep 1
+    done
+    # Do not kill a guessed PID. Only stop our still-running direct child.
+    if same_exe "$spawned"; then kill "$spawned" 2>/dev/null || :; fi
+    record 'start failed: no verified listener; inspect state over ADB' || :
+    fail 'listener startup failed'
+}
+stop_listener() {
+    if ! owned; then
+        [ ! -e "$OWNER" ] && [ ! -e "$PIDFILE" ] && [ ! -L "$OWNER" ] && [ ! -L "$PIDFILE" ] && return 0
+        fail 'ambiguous listener ownership; inspect via ADB'; return 1
+    fi
+    p=$listener; identity=$token
+    # Never signal by name or a stale PID. Recheck immediately before signal.
+    same_exe "$p" && [ "$(start_id "$p")" = "$identity" ] || return 1
+    kill "$p" || return 1
+    i=0
+    while same_exe "$p" && [ "$(start_id "$p")" = "$identity" ]; do
+        [ "$i" -lt 10 ] || { fail 'listener did not stop; no automatic SIGKILL'; return 1; }
+        i=$((i+1)); sleep 1
+    done
+    rm -f "$OWNER" "$PIDFILE"
+    record 'listener stopped; existing authenticated sessions may remain' || :
+}
+status() {
+    state=stopped
+    if owned; then
+        state=not-ready
+        socket_ready "$listener" && state=listening
+    elif [ -e "$OWNER" ] || [ -e "$PIDFILE" ] || [ -L "$OWNER" ] || [ -L "$PIDFILE" ]; then
+        state=ambiguous
+    elif [ "$ENABLED" = 0 ]; then state=disabled
+    fi
+    if [ "${1:-}" = --json ]; then
+        printf '{"state":"%s","enabled":%s,"bind":"%s","port":%s,"abi":"%s"}\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI"
     else
-        unset DROPBEAR_AUTHKEYS
-    fi
-    export DROPBEAR_PASSWD_FILE="$_sdir/passwd"         # honoured by the VD patch
-    [ "$HIDE_IDENT" = "1" ] && export DROPBEAR_IDENT="${IDENT_STRING:-SSH-2.0-}"
-    [ -n "$LOGIN_SHELL" ] && export SHELL="$LOGIN_SHELL"
-    # extra "K=V;K2=V2" pairs
-    if [ -n "$EXTRA_ENV" ]; then
-        _IFS="$IFS"; IFS=';'
-        for _kv in $EXTRA_ENV; do [ -n "$_kv" ] && export "$_kv"; done
-        IFS="$_IFS"
+        printf 'state=%s enabled=%s bind=%s port=%s abi=%s\n' "$state" "$ENABLED" "$BIND" "$PORT" "$ABI"
     fi
 }
-
-# --- daemon lifecycle (single instance) ------------------------------------
-vddb_pid() { pgrep -x "$VDDB_PROC" 2>/dev/null | head -1; }
-vddb_is_running() { [ -n "$(vddb_pid)" ]; }
-
-vddb_stop() {
-    _p="$(vddb_pid)"
-    [ -n "$_p" ] || return 0
-    vddb_log "stopping daemon pid $_p"
-    kill "$_p" 2>/dev/null
-    # give it a moment, then force
-    _i=0; while [ "$_i" -lt 10 ] && vddb_is_running; do _i=$((_i+1)); "$VDDB_TOYBOX" sleep 0.2 2>/dev/null; done
-    vddb_is_running && kill -9 "$(vddb_pid)" 2>/dev/null
-    ! vddb_is_running
-}
-
-# Launch the single daemon in its own session (so the KSU manager's action.sh
-# does not block waiting for the process group to drain), detached from stdio.
-# A short human summary of where the daemon listens, for logs and the manager.
-vddb_listen_summary() {
-    _ls=""
-    if [ "$LISTEN_ALL" = "1" ]; then
-        _ls="all-interfaces"
-    elif [ "$LISTEN_LOOPBACK" = "1" ]; then
-        _ls="loopback"
-    fi
-    [ -n "$LISTEN_ADDRESSES" ] && _ls="${_ls:+$_ls,}$LISTEN_ADDRESSES"
-    [ -n "$_ls" ] || _ls="loopback"
-    printf '%s port %s' "$_ls" "$PORT"
-}
-
-vddb_spawn() {
-    mkdir -p "$VDDB_STATE" 2>/dev/null
-    vddb_export_env
-    # Word-splitting here is intentional: every token is a flag or a normalised
-    # value (PORT, HOSTKEY_TYPE and RECEIVE_WINDOW are validated in
-    # vddb_load_config; binds are addr:port), none of which contain whitespace.
-    # set -f disables globbing first: IPv6 binds like [::1]:PORT contain [ ] which
-    # would otherwise be glob-expanded against the cwd.
-    set -f
-    set -- $(vddb_build_args | tr '\n' ' ')
-    "$VDDB_TOYBOX" setsid "$VDDB_DROPBEAR" "$@" </dev/null >>"$VDDB_LOG" 2>&1 &
-    set +f
-    vddb_log "spawned daemon (port $PORT, listen $(vddb_listen_summary), mode $([ "$START_IN_BFU" = 1 ] && echo BFU || echo AFU))"
-}
-
-# Full (re)start: ensure one instance, secrets present, then spawn.
-# Expose the bundled file-transfer tools at a stable, ABI-correct path so the SFTP
-# subsystem (SFTPSERVER_PATH) and the login PATH (DEFAULT_PATH) find them. This is
-# what makes sftp, sftp-based scp and rsync work over the connection.
-vddb_link_tools() {
-    mkdir -p "$VDDB_DATA/bin" 2>/dev/null
-    for _t in sftp-server scp rsync dropbearconvert; do
-        [ -e "$VDDB_BIN_DIR/$_t" ] && ln -sf "$VDDB_BIN_DIR/$_t" "$VDDB_DATA/bin/$_t" 2>/dev/null
-    done
-}
-
-vddb_start() {
-    vddb_load_config
-    [ "$ENABLED" = "1" ] || { vddb_log "disabled (ENABLED=0), not starting"; return 0; }
-    vddb_stop
-    vddb_ensure_hostkey || { vddb_log "FATAL: no host key, aborting"; return 1; }
-    vddb_link_tools
-    vddb_spawn
-}
-
-vddb_restart() { vddb_start; }

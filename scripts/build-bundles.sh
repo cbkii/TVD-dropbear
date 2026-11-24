@@ -139,12 +139,12 @@ for ABI in $ABIS; do
   rm -rf "$RSRC"; mkdir -p "$RSRC"; tar -xzf "$WORK/rsync.tar.gz" -C "$RSRC" --strip-components=1
   ( cd "$RSRC"
     ./configure --host="$TGT" \
-      --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 \
+      --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 --disable-idn \
       --disable-iconv --disable-iconv-open --disable-acl-support --disable-xattr-support \
       --disable-md2man --disable-roll-simd --disable-roll-asm \
       --with-included-popt --with-included-zlib \
       ac_cv_func_lutimes=no ac_cv_func_utimensat=yes \
-      CFLAGS="-O2 -fPIE" LDFLAGS="-pie" >/dev/null
+      CFLAGS="-O2 -fPIE" LDFLAGS="-pie"
     make -j"$(nproc)" >/dev/null
     "$STRIP" rsync )
   cp "$RSRC/rsync" "$OUT/rsync"
@@ -160,7 +160,7 @@ for ABI in $ABIS; do
       --without-libedit --disable-utmp --disable-wtmp --disable-lastlog \
       --with-zlib="$ZPREFIX" --cache-file="$ABIWORK/openssh.cache" \
       CFLAGS="-O2 -fPIE -DHAVE_ATTRIBUTE__SENTINEL__=1 -DHAVE_ATTRIBUTE__NONNULL__=1" \
-      LDFLAGS="-pie -L$ZPREFIX/lib -Wl,--allow-multiple-definition" >/dev/null
+      LDFLAGS="-pie -L$ZPREFIX/lib -Wl,--allow-multiple-definition"
     make -j"$(nproc)" sftp-server >/dev/null
     "$STRIP" sftp-server )
   cp "$OSRC/sftp-server" "$OUT/sftp-server"

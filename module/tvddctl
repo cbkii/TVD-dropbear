@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 MODDIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd) || exit 1
 . "$MODDIR/common/vddropbear.sh"
-setup || exit 1
+case "${1:-}" in status|doctor|version|logs|fingerprint|boot) setup inspect || exit 1;; *) setup || exit 1;; esac
 load_config || { fail 'invalid config; use ADB to restore known-good config'; exit 1; }
 case "${1:-}" in
     status) status "${2:-}"; exit $?;;
@@ -10,7 +10,7 @@ case "${1:-}" in
     version) cat "$MODDIR/module.prop"; exit $?;;
     logs) [ ! -f "$STATE/last-result" ] || cat "$STATE/last-result"; exit 0;;
     fingerprint) private_file "$HOSTKEY" && "$BIN/dropbearkey" -y -f "$HOSTKEY"; exit $?;;
-    boot) [ "$ENABLED" = 1 ] || exit 0;;
+    boot) [ "$ENABLED" = 1 ] || exit 0; setup || exit 1;;
 esac
 lock || exit 1
 load_config || exit 1

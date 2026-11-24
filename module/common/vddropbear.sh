@@ -27,7 +27,16 @@ private_file() {
 setup() {
     [ "$(id -u)" = 0 ] || { fail 'root required'; return 1; }
     umask 077
-    private_dir "$DATA" && private_dir "$SHIM" && private_dir "$STATE" || { fail 'unsafe state directory'; return 1; }
+    if [ "${1:-}" = inspect ]; then
+        [ -d "$DATA" ] && [ ! -L "$DATA" ] && [ "$(stat -c '%u:%a' "$DATA")" = 0:700 ] || return 1
+        for dir in "$SHIM" "$STATE"; do
+            if [ -e "$dir" ] || [ -L "$dir" ]; then
+                [ -d "$dir" ] && [ ! -L "$dir" ] && [ "$(stat -c '%u:%a' "$dir")" = 0:700 ] || return 1
+            fi
+        done
+    else
+        private_dir "$DATA" && private_dir "$SHIM" && private_dir "$STATE" || { fail 'unsafe state directory'; return 1; }
+    fi
     ABI=$(getprop ro.product.cpu.abi)
     case "$ABI" in armeabi-v7a|arm64-v8a) ;; *) fail "unsupported ABI: $ABI"; return 1;; esac
     BIN=$MODDIR/bin/$ABI

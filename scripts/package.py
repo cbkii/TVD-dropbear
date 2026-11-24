@@ -36,11 +36,10 @@ def main():
     sha = subprocess.check_output(["git","rev-parse","HEAD"], cwd=ROOT,text=True).strip()
     source_hashes = (ROOT/"build/bundles/source-sha256.txt").read_text()
     source_revision = (ROOT/"build/dropbear.commit").read_text().strip()
-    info = {"source_sha":sha,"abi":a.abi,"dropbear_commit":source_revision,"bundle_source_hashes":source_hashes,
+    info = {"components":{"dropbear":"2026.94","rsync":"3.5.2","openssh":"10.4p1","zlib":"1.4"},"source_sha":sha,"abi":a.abi,"dropbear_commit":source_revision,"bundle_source_hashes":source_hashes,
             "ndk":"27.0.12077973","binaries":binaries}
     items["bin/PROVENANCE.json"] = (json.dumps(info,indent=2)+"\n").encode()
-    for n,data in list(items.items()):
-        items[n+".sha256"] = (digest(data)+"  "+n+"\n").encode()
+    items["manifest.sha256"] = "".join(digest(data)+"  "+n+"\n" for n,data in sorted(items.items())).encode()
     version = re.search(r"^version=(.+)$",items["module.prop"].decode(),re.M).group(1)
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-testing)?",version): raise ValueError("invalid version")
     a.out.mkdir(parents=True,exist_ok=True)

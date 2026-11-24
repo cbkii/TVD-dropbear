@@ -24,7 +24,7 @@
 #
 # Cross-compiles the bundled tools as DYNAMIC (linker64 + bionic) binaries for ARM Android ABIs:
 #     arm64-v8a  armeabi-v7a
-# Outputs land in ../module/bin/<abi>/ as `sftp-server`, `scp` and `rsync`.
+# Outputs land in ../module/bin/<abi>/ as `sftp-server` and `rsync`.
 #
 #   - sftp-server, scp : OpenSSH portable, built --without-openssl (builtin crypto)
 #   - rsync            : with bundled popt + zlib
@@ -47,10 +47,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${API:=28}"
 ABIS="${ABIS:-arm64-v8a armeabi-v7a}"
 
-ZLIB_VERSION="${ZLIB_VERSION:-1.3.1}"
-RSYNC_VERSION="${RSYNC_VERSION:-3.4.1}"
-OPENSSH_VERSION="${OPENSSH_VERSION:-9.9p2}"
-OPENSSH_TAG="V_$(echo "$OPENSSH_VERSION" | tr 'p.' 'P_' | tr '[:lower:]' '[:upper:]')"  # 9.9p2 -> V_9_9_P2
+ZLIB_VERSION=1.4
+RSYNC_VERSION=3.5.2
+OPENSSH_VERSION=10.4p1
 
 WORK="$ROOT/build/bundles"
 TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/$(uname | tr '[:upper:]' '[:lower:]')-x86_64/bin"
@@ -66,16 +65,17 @@ triple() {
   esac
 }
 
-fetch() { # url outfile
-  [ -f "$2" ] && return 0
-  curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 2 -o "$2" "$1"
+fetch() { # url outfile expected-sha256
+  if [ ! -f "$2" ]; then
+    curl --fail --silent --show-error --location --connect-timeout 15 --max-time 180 --retry 2 -o "$2.tmp" "$1"
+    mv "$2.tmp" "$2"
+  fi
+  printf '%s  %s\n' "$3" "$2" | sha256sum -c -
 }
-
-echo "==> fetching sources (zlib $ZLIB_VERSION, rsync $RSYNC_VERSION, openssh $OPENSSH_VERSION)"
-fetch "https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.gz" "$WORK/zlib.tar.gz"
-fetch "https://download.samba.org/pub/rsync/src/rsync-$RSYNC_VERSION.tar.gz" "$WORK/rsync.tar.gz"
-fetch "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-$OPENSSH_VERSION.tar.gz" "$WORK/openssh.tar.gz" \
-  || fetch "https://github.com/openssh/openssh-portable/archive/refs/tags/$OPENSSH_TAG.tar.gz" "$WORK/openssh.tar.gz"
+# Hashes from upstream GitHub release assets / OpenSSH release notes.
+fetch "https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.gz" "$WORK/zlib.tar.gz" 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
+fetch "https://github.com/RsyncProject/rsync/releases/download/v$RSYNC_VERSION/rsync-$RSYNC_VERSION.tar.gz" "$WORK/rsync.tar.gz" a10d591825251e070f74c98df3daad195def4ed81b4a2de16169026aea33f6c8
+fetch "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-$OPENSSH_VERSION.tar.gz" "$WORK/openssh.tar.gz" ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238
 
 # OpenSSH cross-compile cache seed: functions bionic lacks that configure
 # mis-detects, and the few it reports absent but whose symbol lives in libc.a.
@@ -149,7 +149,7 @@ for ABI in $ABIS; do
     "$STRIP" rsync )
   cp "$RSRC/rsync" "$OUT/rsync"
 
-  # --- OpenSSH sftp-server + scp ---
+  # --- OpenSSH sftp-server ---
   OSRC="$ABIWORK/openssh"
   rm -rf "$OSRC"; mkdir -p "$OSRC"; tar -xzf "$WORK/openssh.tar.gz" -C "$OSRC" --strip-components=1
   patch_openssh "$OSRC"

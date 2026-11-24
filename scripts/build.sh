@@ -60,7 +60,8 @@ if [ ! -d "$SRC" ]; then
 fi
 
 echo "==> applying patch set"
-git -C "$SRC" reset --hard "$VERSION"
+test "$(git -C "$SRC" rev-parse "$VERSION^{commit}")" = 28216cd9af822732a1549b78621c2ea9a76a0fe5 || { echo "Unexpected Dropbear source revision" >&2; exit 1; }
+git -C "$SRC" reset --hard 28216cd9af822732a1549b78621c2ea9a76a0fe5
 git -C "$SRC" clean -fdx
 # Record the exact source revision for artefact provenance.
 git -C "$SRC" rev-parse HEAD > "$WORK/dropbear.commit"

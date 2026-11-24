@@ -6,6 +6,14 @@ on:
         type: choice
         options: [testing, stable]
         default: testing
+      abi:
+        type: choice
+        options: [armeabi-v7a, arm64-v8a]
+        default: armeabi-v7a
+      approved_zip_sha256:
+        description: 'Stable only: SHA256 of exact tested ZIP'
+        type: string
+        required: false
       qualified:
         description: 'Stable only: exact artifact and physical acceptance reviewed'
         type: boolean
@@ -17,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: github.ref_name == github.event.repository.default_branch
+    if: github.ref_name == github.event.repository.default_branch && inputs.channel == 'testing'
     strategy:
       matrix:
         abi: [armeabi-v7a, arm64-v8a]
@@ -69,12 +77,6 @@ jobs:
           set -euo pipefail
           (cd dist && sha256sum -c *.sha256)
           VERSION=$(sed -n 's/^version=//p' module/module.prop)
-          if [ "$CHANNEL" = stable ]; then
-            # A candidate must not be published as stable; stable promotion
-            # must bind the reviewed physical artefact hash to its release.
-            echo 'Stable release blocked until exact-artifact promotion and physical qualification implemented.'
-            exit 1
-          fi
           # Only a draft named testing is mutable. Never overwrite a published release.
           if gh release view testing --json isDraft > /tmp/tvd-release.json 2>/dev/null; then
             test "$(jq -r .isDraft /tmp/tvd-release.json)" = true
@@ -84,3 +86,38 @@ jobs:
           gh release edit testing --draft --target "$SOURCE_SHA" --notes "Source: $SOURCE_SHA. Testing only; physical qualification pending."
           gh release upload testing dist/* --clobber
           gh release view testing --json isDraft,assets,targetCommitish
+  promote:
+    if: github.ref_name == github.event.repository.default_branch && inputs.channel == 'stable' && inputs.qualified
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ABI: ${{ inputs.abi }}
+          APPROVED: ${{ inputs.approved_zip_sha256 }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version=//p' module/module.prop)
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$APPROVED" =~ ^[0-9a-f]{64}$ ]]
+          case "$ABI" in armeabi-v7a|arm64-v8a) ;; *) exit 1;; esac
+          test "$(gh release view testing --json isDraft --jq .isDraft)" = true
+          ZIP="TVD-dropbear-$VERSION-$ABI.zip"
+          SRC="TVD-dropbear-rsync-source-$ABI.tar.gz"
+          mkdir dist
+          gh release download testing --dir dist --pattern "$ZIP" --pattern "$ZIP.sha256" --pattern "$SRC" --pattern "$SRC.sha256"
+          (cd dist && sha256sum -c *.sha256)
+          test "$(sha256sum "dist/$ZIP" | cut -d' ' -f1)" = "$APPROVED"
+          unzip -p "dist/$ZIP" bin/PROVENANCE.json > /tmp/tvd-provenance.json
+          test "$(jq -r .source_sha /tmp/tvd-provenance.json)" = "$GITHUB_SHA"
+          test "$(jq -r .abi /tmp/tvd-provenance.json)" = "$ABI"
+          if gh release view "$VERSION" >/dev/null 2>&1; then echo 'Version already exists'; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then echo 'Tag already exists'; exit 1; else test "$?" = 2; fi
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "TVD Dropbear $VERSION ($ABI)" --notes "Owner-approved physical qualification; source $GITHUB_SHA; ZIP SHA256 $APPROVED" dist/*
+          gh release view "$VERSION" --json assets,isDraft,tagName

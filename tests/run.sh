@@ -28,7 +28,7 @@ printf 'ENABLED=0\nBIND=127.0.0.1\nPORT=2222\nX=$(touch %s/pwned)\n' "$tmp" > "$
 if load_config; then exit 1; fi
 [ ! -e "$tmp/pwned" ]
 # Filesystem regressions: do not pass /dev/null as PID file or kill by process name.
-! grep -Eq '(-P[[:space:]]+/dev/null|pkill|killall)' module/common/vddropbear.sh module/uninstall.sh
+if grep -Ev '^[[:space:]]*#' module/common/vddropbear.sh module/uninstall.sh | grep -Eq '(-P[[:space:]]+/dev/null|pkill|killall)'; then exit 1; fi
 grep -Fq 'DROPBEAR_SVR_PASSWORD_AUTH 0' patches/localoptions.h
 grep -Fq 'DROPBEAR_SVR_MULTIUSER 0' patches/localoptions.h
 grep -Fq 'ENABLED=0' module/common/config.default

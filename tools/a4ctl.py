@@ -45,6 +45,7 @@ def transfer_argv(args,op,first,second):
     if op=="push":
         from tvdcore import validate_shared
         validate_shared(remote)
+        # Only the new host toolkit may create workspace directories; legacy push requires an existing target.
         if args.context!="adb-shell": raise ValueError("shared staging writes require unprivileged ADB-shell context")
     local=local_path(second if op in ("pull","sync") else first)
     if args.context=="adb-root":
@@ -99,7 +100,15 @@ def main():
             argv=(["ssh","-t",*SSH_OPTIONS,ssh_alias(a.host)] if a.context=="ssh-root"
                   else [*adb_prefix(a.serial),"shell","-t",*(["su"] if a.context=="adb-root" else [])])
             return run(a,argv).returncode
-        if op in ("pull","push","sync"): return run(a,transfer_argv(a,op,*a.operands)).returncode
+        if op in ("pull","push","sync"):
+            argv=transfer_argv(a,op,*a.operands)
+            if op=="push":
+                from tvdui import safe_workspace
+                category=a.operands[1].split("/")[-2]
+                remote=shlex.quote(a.operands[1])
+                guard=safe_workspace(category)+" && test ! -e "+remote+" && test ! -L "+remote
+                if execute(a,guard).returncode: raise ValueError("unsafe or unavailable shared target")
+            return run(a,argv).returncode
         if op=="install":
             if a.context!="adb-shell": raise ValueError("APK install requires explicit adb-shell context")
             path=pathlib.Path(a.operands[0]).resolve()

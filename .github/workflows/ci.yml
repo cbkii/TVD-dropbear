@@ -20,8 +20,19 @@ jobs:
           shellcheck -S error -s sh module/*.sh module/common/*.sh module/tvddctl tests/*.sh
           shellcheck -S error -s bash scripts/build.sh scripts/build-bundles.sh scripts/preflight.sh
           bash scripts/preflight.sh
+  mcp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/tvd-mcp"
+          "$RUNNER_TEMP/tvd-mcp/bin/pip" install -r tools/requirements-mcp.txt
+          "$RUNNER_TEMP/tvd-mcp/bin/python" tests/mcp_smoke.py
   native:
-    needs: tests
+    needs: [tests, mcp]
     strategy:
       fail-fast: false
       matrix:

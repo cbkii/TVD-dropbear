@@ -21,7 +21,7 @@ MAX_OUTPUT = 8 * 1024 * 1024
 MAX_PREVIEW = 3000
 DEFAULT_HOME = Path.home() / "TVD-Engineering"
 IDENTITY = "getprop ro.product.device; getprop ro.build.version.sdk; getprop ro.serialno; getprop ro.build.fingerprint; id -u"
-SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\Z")
+SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 SENSITIVE = re.compile(r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?|(?:password|passwd|token|secret|api[_-]?key|cookie)\s*[:=]\s*)\S+")
 URL_SECRET = re.compile(r"(?i)(https?://)[^/\s@]+:[^/\s@]+@|https?://[^\s]+[?][^\s]+")
 PEM = re.compile(r"-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)")

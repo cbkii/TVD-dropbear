@@ -7,6 +7,9 @@ import sys
 from tvdcore import Runner, Store, DEFAULT_HOME
 from tvdprofiles import PROBES, PROFILES, inspect, profile
 from tvdstate import SNAPSHOTS, snapshot, compare, record_capability, capabilities
+from tvdui import hierarchy, keypress, wait_foreground, KEYS
+from tvdmirror import ROOTS, list_references, mirror
+from tvdtests import load_plan, run_test
 
 def options(p):
     p.add_argument("--serial")
@@ -32,6 +35,12 @@ def main():
     sub.add_parser("capabilities")
     x=sub.add_parser("exec"); x.add_argument("command"); x.add_argument("--allow-command",action="store_true")
     sub.add_parser("screenshot")
+    x=sub.add_parser("ui-hierarchy"); x.add_argument("--non-sensitive-screen",action="store_true"); x.add_argument("--cleanup",action="store_true")
+    x=sub.add_parser("ui-key"); x.add_argument("key",choices=KEYS); x.add_argument("--allow-ui",action="store_true")
+    x=sub.add_parser("ui-wait"); x.add_argument("component"); x.add_argument("--seconds",type=int,default=15)
+    x=sub.add_parser("reference-list"); x.add_argument("root",choices=ROOTS)
+    x=sub.add_parser("mirror"); x.add_argument("paths",nargs="+"); x.add_argument("--verify",action="store_true")
+    x=sub.add_parser("test"); x.add_argument("name"); x.add_argument("--plan"); x.add_argument("--source-sha"); x.add_argument("--artifact-sha256")
     try:
         a=p.parse_args()
         store=Store(a.workspace)
@@ -44,11 +53,17 @@ def main():
             elif a.operation=="profile": result=profile(r,a.name)
             elif a.operation=="snapshot": result=snapshot(r,a.name,a.kind)
             elif a.operation=="screenshot": result=r.binary_capture()
+            elif a.operation=="ui-hierarchy": result=hierarchy(r,allow_shared=a.non_sensitive_screen,cleanup=a.cleanup)
+            elif a.operation=="ui-key": result=keypress(r,a.key,allow_ui=a.allow_ui)
+            elif a.operation=="ui-wait": result=wait_foreground(r,a.component,a.seconds)
+            elif a.operation=="reference-list": result=list_references(r,a.root)
+            elif a.operation=="mirror": result=mirror(r,a.paths,a.verify)
+            elif a.operation=="test": result=run_test(r,a.name,load_plan(a.name,a.plan),a.source_sha,a.artifact_sha256)
             elif a.operation=="exec":
                 if not a.allow_command: raise ValueError("explicit --allow-command required; arbitrary shell is not a read-only operation")
                 result=r.execute(a.command,read_only=False,sensitive=True)
         print(json.dumps(result,indent=2,ensure_ascii=True))
-        return 1 if isinstance(result,dict) and (result.get("status") not in (None,"ok") and isinstance(result.get("status"),str) or result.get("complete") is False) else 0
+        return 1 if isinstance(result,dict) and (result.get("status") not in (None,"ok") and isinstance(result.get("status"),str) or result.get("complete") is False or result.get("passed") is False or result.get("matched") is False) else 0
     except (ValueError,OSError) as exc:
         print(str(exc),file=sys.stderr); return 2
 if __name__=="__main__":

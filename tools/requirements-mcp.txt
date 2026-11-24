@@ -1,0 +1,2 @@
+# Host only; v1 protocol compatibility with existing clients. Review dependency advisories before upgrade.
+mcp==1.30.0

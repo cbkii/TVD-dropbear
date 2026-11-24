@@ -5,3 +5,6 @@ Headless, key-only SSH engineering transport for rooted Android TV. Fork of [VD 
 Retains authenticated ADB. One native listener when enabled; no updater, WebUI, password authentication, watchdog or default LAN exposure. SFTP (including modern SCP) and rsync are on demand. Root-only login: every enrolled key is full administrative access, not a sandbox. No private keys on TV. Do not expose to the public Internet.
 
 Read [engineering and deployment guide](docs/TVD-ENGINEERING.md) before use. Build/testing artefacts from Actions; stable releases require actual device acceptance. Upstream documentation retained as historical reference, not instructions for this fork. [Licence](LICENSE) and [third-party notices](THIRD-PARTY-NOTICES.md).
+
+## Agent toolkit
+See [host engineering toolkit](docs/TVD-HOST-TOOLS.md) for bounded diagnostic profiles, evidence and capability records, snapshots, selective firmware mirroring, UI observation, physical-test definitions and optional local MCP. Device-side generated data is restricted to /sdcard/TVD-Engineering/. No additional resident TV process.
